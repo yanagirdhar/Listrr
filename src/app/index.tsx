@@ -37,6 +37,10 @@ export default function HomeScreen() {
     );
   };
 
+  const handleDeleteTask = (id: string) => {
+    setTasks((prevTasks) => prevTasks.filter((task) => task.id !== id));
+  };
+
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
@@ -54,6 +58,7 @@ export default function HomeScreen() {
                 name={task.name}
                 completed={task.completed}
                 onToggle={() => handleToggleTask(task.id)}
+                onDelete={() => handleDeleteTask(task.id)}
               />
             ))}
           </ScrollView>
