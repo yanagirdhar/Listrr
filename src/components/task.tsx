@@ -1,17 +1,25 @@
-import { StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet } from 'react-native';
 import { ThemedText } from './themed-text';
 
 type TaskProps = {
   name: string;
   completed: boolean;
+  onToggle: () => void;
 };
 
-export function Task({ name, completed }: TaskProps) {
+export function Task({ name, completed, onToggle }: TaskProps) {
   return (
-    <View style={styles.task}>
-      <ThemedText>{name}</ThemedText>
+    <Pressable style={styles.task} onPress={onToggle}>
+      <ThemedText
+        style={{
+          textDecorationLine: completed ? 'line-through' : 'none',
+          opacity: completed ? 0.6 : 1,
+        }}
+      >
+        {name}
+      </ThemedText>
       <ThemedText>{completed ? '✓' : '○'}</ThemedText>
-    </View>
+    </Pressable>
   );
 }
 
