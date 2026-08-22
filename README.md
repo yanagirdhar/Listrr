@@ -1,56 +1,69 @@
-# Welcome to your Expo app 👋
+# Listrr
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+**Listrr** is a responsive, cross-platform task and list management app built with React Native and Expo Router. Designed with a tab-based navigation architecture, dynamic dark mode support, and seamless list formatting options.
 
-## Get started
+---
 
-1. Install dependencies
+## Features
 
+- **Multi-Format Lists**: Create and manage checklists, bulleted lists, and numbered lists.
+- **Tagging & Filtering**: Categorize lists with custom tags and filter them instantly on the home screen.
+- **Pinning & Reordering**: Pin high-priority lists to the top of your view.
+- **Dynamic Dark Mode**: Automatic theme switcher with styled UI adjustments for status and navigation bars.
+- **Responsive Design**: Built using dynamic layouts scaling across small smartphones, foldables, and large screen devices.
+
+---
+
+## Tech Stack
+
+- **Framework**: React Native / Expo (SDK 52+)
+- **Navigation**: Expo Router (File-based Routing)
+- **Icons**: `@expo/vector-icons` (Ionicons)
+- **Safe Area Management**: `react-native-safe-area-context`
+- **State Management**: React Context API (`ListContext`)
+
+---
+
+## Getting Started
+
+### Prerequisites
+
+Ensure you have **Node.js** (v18+) and **npm** installed on your system.
+
+### Installation
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/YOUR-USERNAME/Listrr.git
+   cd Listrr
+   ```
+
+2. **Install dependencies:**
    ```bash
    npm install
    ```
 
-2. Start the app
-
+3. **Start the Expo development server:**
    ```bash
-   npx expo start
+   npx expo start -c
    ```
 
-In the output, you'll find options to open the app in a
+4. **Run on a device or emulator:**
+   ```bash
+   Scan the QR code using the Expo Go app on Android or iOS.
+   Press a for Android Emulator or i for iOS Simulator.
+   ```
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
-```
-
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
-
-### Other setup steps
-
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
-
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+### Project Structure
+src/
+├── app/                 # Expo Router file-based pages
+│   ├── (tabs)/          # Bottom tab navigation screens
+│   │   ├── _layout.tsx  # Tab bar setup and custom FAB
+│   │   ├── index.tsx    # "My Lists" screen (Filtered view)
+│   │   ├── create.tsx   # "Create List" form
+│   │   └── profile.tsx  # Settings & Statistics overview
+│   └── _layout.tsx      # Root Stack and Context provider
+├── context/
+│   └── ListContext.tsx  # Global state for lists and dark mode
+└── types/
+    └── list.ts          # TypeScript interfaces
