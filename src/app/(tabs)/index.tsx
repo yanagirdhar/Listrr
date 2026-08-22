@@ -6,6 +6,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -17,8 +18,8 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLists } from '../../context/ListContext';
 import { List } from '../../types/list';
+import { ListSearchIndex } from '../../utils/searchIndex';
 
-// Memoized Card Component with dedicated drag handle
 const ListCard = React.memo(({ 
   item, 
   drag, 
@@ -38,32 +39,19 @@ const ListCard = React.memo(({
 }) => {
   return (
     <ScaleDecorator>
-      <View
-        style={[
-          styles.card,
-          { backgroundColor: theme.cardBg },
-          isActive && styles.activeCard,
-        ]}
-      >
+      <View style={[styles.card, { backgroundColor: theme.cardBg }, isActive && styles.activeCard]}>
         <View style={styles.cardHeader}>
-          {/* Drag Handle Button */}
           <TouchableOpacity onLongPress={drag} delayLongPress={100} style={styles.dragHandle}>
             <Ionicons name="menu-outline" size={22} color={theme.textSecondary} />
           </TouchableOpacity>
 
           <View style={styles.headerLeft}>
-            <Text
-              style={[styles.cardTitle, { color: theme.textPrimary }]}
-              numberOfLines={1}
-              ellipsizeMode="tail"
-            >
+            <Text style={[styles.cardTitle, { color: theme.textPrimary }]} numberOfLines={1}>
               {item.title}
             </Text>
             {item.tag && (
               <View style={[styles.tagBadge, { backgroundColor: theme.tagBadgeBg }]}>
-                <Text style={styles.tagText} numberOfLines={1}>
-                  {item.tag}
-                </Text>
+                <Text style={styles.tagText} numberOfLines={1}>{item.tag}</Text>
               </View>
             )}
           </View>
@@ -98,20 +86,12 @@ const ListCard = React.memo(({
                 />
               )}
               {item.type === 'numbered' && (
-                <Text style={[styles.typeIndicator, { color: theme.textSecondary }]}>
-                  {index + 1}.{' '}
-                </Text>
+                <Text style={[styles.typeIndicator, { color: theme.textSecondary }]}>{index + 1}. </Text>
               )}
               {item.type === 'bulleted' && (
                 <Text style={[styles.typeIndicator, { color: theme.textSecondary }]}>• </Text>
               )}
-              <Text
-                style={[
-                  styles.itemText,
-                  { color: theme.textPrimary },
-                  subItem.isCompleted && styles.completedText,
-                ]}
-              >
+              <Text style={[styles.itemText, { color: theme.textPrimary }, subItem.isCompleted && styles.completedText]}>
                 {subItem.text}
               </Text>
             </Pressable>
@@ -125,13 +105,27 @@ const ListCard = React.memo(({
 export default function ListsScreen() {
   const { lists, isDarkMode, togglePinList, deleteList, toggleItemComplete, reorderLists } = useLists();
   const [selectedTag, setSelectedTag] = useState<string>('All');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // Rebuild Trie Index when list structure updates
+  const searchIndex = useMemo(() => new ListSearchIndex(lists), [lists]);
+
+  // Execute O(K) search using Trie
+  const searchMatchingIds = useMemo(() => {
+    return searchIndex.search(searchQuery);
+  }, [searchIndex, searchQuery]);
+
+  // Filter dataset by Tag + Trie results
+  const filteredLists = useMemo(() => {
+    return lists.filter((list) => {
+      const matchesTag = selectedTag === 'All' || list.tag === selectedTag;
+      const matchesSearch = searchMatchingIds === null || searchMatchingIds.has(list.id);
+      return matchesTag && matchesSearch;
+    });
+  }, [lists, selectedTag, searchMatchingIds]);
 
   const rawTags = lists.map((l) => l.tag).filter((t): t is string => Boolean(t));
   const tags = useMemo(() => ['All', ...Array.from(new Set(rawTags))], [lists]);
-
-  const filteredLists = useMemo(() => {
-    return lists.filter((list) => selectedTag === 'All' || list.tag === selectedTag);
-  }, [lists, selectedTag]);
 
   const pinnedLists = useMemo(() => filteredLists.filter((l) => l.isPinned), [filteredLists]);
   const unpinnedLists = useMemo(() => filteredLists.filter((l) => !l.isPinned), [filteredLists]);
@@ -162,6 +156,7 @@ export default function ListsScreen() {
     chipText: isDarkMode ? '#FFFFFF' : '#000000',
     tagBadgeBg: isDarkMode ? '#1A385C' : '#E6F4FE',
     sectionHeader: isDarkMode ? '#8E8E93' : '#6C6C70',
+    searchBg: isDarkMode ? '#2C2C2E' : '#E5E5EA',
   }), [isDarkMode]);
 
   const renderListItem = useCallback(
@@ -182,6 +177,21 @@ export default function ListsScreen() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]} edges={['bottom']}>
+        {/* Search Bar Input */}
+        <View style={styles.searchSection}>
+          <View style={[styles.searchContainer, { backgroundColor: theme.searchBg }]}>
+            <Ionicons name="search" size={18} color={theme.textSecondary} style={styles.searchIcon} />
+            <TextInput
+              style={[styles.searchInput, { color: theme.textPrimary }]}
+              placeholder="Search lists or items..."
+              placeholderTextColor={theme.textSecondary}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              clearButtonMode="while-editing"
+            />
+          </View>
+        </View>
+
         {/* Filter Bar */}
         <View style={[styles.filterContainer, { backgroundColor: theme.filterBg }]}>
           <FlatList
@@ -191,20 +201,10 @@ export default function ListsScreen() {
             keyExtractor={(item) => item}
             renderItem={({ item }) => (
               <TouchableOpacity
-                style={[
-                  styles.chip,
-                  { backgroundColor: theme.chipBg },
-                  selectedTag === item && styles.chipActive,
-                ]}
+                style={[styles.chip, { backgroundColor: theme.chipBg }, selectedTag === item && styles.chipActive]}
                 onPress={() => setSelectedTag(item)}
               >
-                <Text
-                  style={[
-                    styles.chipText,
-                    { color: theme.chipText },
-                    selectedTag === item && styles.chipTextActive,
-                  ]}
-                >
+                <Text style={[styles.chipText, { color: theme.chipText }, selectedTag === item && styles.chipTextActive]}>
                   {item}
                 </Text>
               </TouchableOpacity>
@@ -215,18 +215,13 @@ export default function ListsScreen() {
         {filteredLists.length === 0 ? (
           <View style={styles.emptyContainer}>
             <Ionicons name="clipboard-outline" size={60} color={theme.textSecondary} />
-            <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
-              No lists found
-            </Text>
+            <Text style={[styles.emptyText, { color: theme.textSecondary }]}>No lists found</Text>
           </View>
         ) : (
           <ScrollView contentContainerStyle={styles.listContent}>
-            {/* PINNED SECTION */}
             {pinnedLists.length > 0 && (
               <View style={styles.section}>
-                <Text style={[styles.sectionTitle, { color: theme.sectionHeader }]}>
-                  📌 PINNED
-                </Text>
+                <Text style={[styles.sectionTitle, { color: theme.sectionHeader }]}>📌 PINNED</Text>
                 <DraggableFlatList
                   data={pinnedLists}
                   onDragEnd={handleDragEndPinned}
@@ -237,13 +232,10 @@ export default function ListsScreen() {
               </View>
             )}
 
-            {/* UNPINNED SECTION */}
             {unpinnedLists.length > 0 && (
               <View style={styles.section}>
                 {pinnedLists.length > 0 && (
-                  <Text style={[styles.sectionTitle, { color: theme.sectionHeader }]}>
-                    OTHER LISTS
-                  </Text>
+                  <Text style={[styles.sectionTitle, { color: theme.sectionHeader }]}>OTHER LISTS</Text>
                 )}
                 <DraggableFlatList
                   data={unpinnedLists}
@@ -263,21 +255,18 @@ export default function ListsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  filterContainer: { paddingVertical: 12, paddingHorizontal: '4%' },
+  searchSection: { paddingHorizontal: '4%', paddingTop: 8, paddingBottom: 4 },
+  searchContainer: { flexDirection: 'row', alignItems: 'center', borderRadius: 10, paddingHorizontal: 10, height: 38 },
+  searchIcon: { marginRight: 6 },
+  searchInput: { flex: 1, fontSize: 15, paddingVertical: 0 },
+  filterContainer: { paddingVertical: 8, paddingHorizontal: '4%' },
   chip: { paddingHorizontal: 16, paddingVertical: 6, borderRadius: 16, marginRight: 8 },
   chipActive: { backgroundColor: '#208AEF' },
   chipText: { fontSize: 14, fontWeight: '500' },
   chipTextActive: { color: '#FFFFFF' },
   listContent: { padding: '4%' },
   section: { marginBottom: 12 },
-  sectionTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    marginTop: 4,
-    marginBottom: 8,
-    marginLeft: 4,
-  },
+  sectionTitle: { fontSize: 12, fontWeight: '700', letterSpacing: 0.8, marginTop: 4, marginBottom: 8, marginLeft: 4 },
   card: { borderRadius: 12, padding: 16, marginBottom: 12, elevation: 2 },
   activeCard: { opacity: 0.9, elevation: 8 },
   cardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
