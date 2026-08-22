@@ -1,4 +1,4 @@
-import React, { useState, useLayoutEffect } from 'react';
+import { useState, useLayoutEffect } from 'react';
 import {
   View,
   Text,
@@ -13,14 +13,21 @@ import * as Clipboard from 'expo-clipboard';
 import { useLists } from '../../context/ListContext';
 
 export default function ListDetailScreen() {
+  // Get list ID from route params
   const { id } = useLocalSearchParams<{ id: string }>();
   const navigation = useNavigation();
   const router = useRouter();
+  
+  // Access global lists state and mutation methods
   const { lists, isDarkMode, toggleArchiveList, deleteList, toggleItemComplete } = useLists();
+  
+  // Feedback toast state for clipboard copy action
   const [copiedToast, setCopiedToast] = useState(false);
 
+  // Find target list object matching route parameter
   const currentList = lists.find((l) => l.id === id);
 
+  // Dynamic theme styling object
   const theme = {
     bg: isDarkMode ? '#121212' : '#FFFFFF',
     textPrimary: isDarkMode ? '#FFFFFF' : '#000000',
@@ -29,6 +36,7 @@ export default function ListDetailScreen() {
     border: isDarkMode ? '#2C2C2E' : '#E5E5EA',
   };
 
+  // Copy list title and formatted item content to clipboard
   const handleCopyData = async () => {
     if (!currentList) return;
     const textToCopy =
@@ -46,24 +54,27 @@ export default function ListDetailScreen() {
     setTimeout(() => setCopiedToast(false), 2000);
   };
 
+  // Navigate to edit screen with current list ID
   const handleEdit = () => {
     if (!currentList) return;
     router.push({ pathname: '/create', params: { editId: currentList.id } });
   };
 
+  // Toggle archive status and return to previous screen
   const handleArchive = () => {
     if (!currentList) return;
     toggleArchiveList(currentList.id);
     router.back();
   };
 
+  // Delete list and return to previous screen
   const handleDelete = () => {
     if (!currentList) return;
     deleteList(currentList.id);
     router.back();
   };
 
-  // Configure Top-Right 4 Header Actions
+  // Set header action buttons dynamically (Edit, Copy, Archive, Delete)
   useLayoutEffect(() => {
     navigation.setOptions({
       headerRight: () => (
@@ -89,6 +100,7 @@ export default function ListDetailScreen() {
     });
   }, [navigation, currentList]);
 
+  // Fallback view if list does not exist or was deleted
   if (!currentList) {
     return (
       <View style={[styles.center, { backgroundColor: theme.bg }]}>
@@ -99,6 +111,7 @@ export default function ListDetailScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
+      {/* Toast banner indicating content was copied */}
       {copiedToast && (
         <View style={styles.toast}>
           <Text style={styles.toastText}>Copied to clipboard!</Text>
@@ -106,6 +119,7 @@ export default function ListDetailScreen() {
       )}
 
       <ScrollView contentContainerStyle={styles.content}>
+        {/* Title and optional tag badge */}
         <Text style={[styles.title, { color: theme.textPrimary }]}>{currentList.title}</Text>
         {currentList.tag && (
           <View style={[styles.tagBadge, { backgroundColor: theme.tagBg }]}>
@@ -113,6 +127,7 @@ export default function ListDetailScreen() {
           </View>
         )}
 
+        {/* Item listing section */}
         <View style={styles.itemsWrapper}>
           {currentList.items.map((subItem, index) => (
             <Pressable
@@ -122,6 +137,7 @@ export default function ListDetailScreen() {
                 currentList.type === 'checklist' && toggleItemComplete(currentList.id, subItem.id)
               }
             >
+              {/* Checkbox indicator */}
               {currentList.type === 'checklist' && (
                 <Ionicons
                   name={subItem.isCompleted ? 'checkbox' : 'square-outline'}
@@ -130,14 +146,17 @@ export default function ListDetailScreen() {
                   style={styles.icon}
                 />
               )}
+              {/* Number prefix */}
               {currentList.type === 'numbered' && (
                 <Text style={[styles.typeIndicator, { color: theme.textSecondary }]}>
                   {index + 1}.{' '}
                 </Text>
               )}
+              {/* Bullet prefix */}
               {currentList.type === 'bulleted' && (
                 <Text style={[styles.typeIndicator, { color: theme.textSecondary }]}>• </Text>
               )}
+              {/* Item label */}
               <Text
                 style={[
                   styles.itemText,

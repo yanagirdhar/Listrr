@@ -21,7 +21,7 @@ import { useLists } from '../../context/ListContext';
 import { List } from '../../types/list';
 import { ListSearchIndex } from '../../utils/searchIndex';
 
-// Memoized Card Component
+// Render card component for each individual list
 const ListCard = React.memo(({ 
   item, 
   drag, 
@@ -42,13 +42,14 @@ const ListCard = React.memo(({
   return (
     <ScaleDecorator>
       <View style={[styles.card, { backgroundColor: theme.cardBg }, isActive && styles.activeCard]}>
+        {/* Card header: handle, title, tag, pin button */}
         <View style={styles.cardHeader}>
-          {/* Drag Handle */}
+          {/* Hold icon to drag and reorder list */}
           <TouchableOpacity onLongPress={drag} delayLongPress={100} style={styles.dragHandle}>
             <Ionicons name="menu-outline" size={22} color={theme.textSecondary} />
           </TouchableOpacity>
 
-          {/* Clickable Header Area */}
+          {/* Title and tag badge */}
           <TouchableOpacity 
             style={styles.headerLeft} 
             activeOpacity={0.7} 
@@ -64,6 +65,7 @@ const ListCard = React.memo(({
             )}
           </TouchableOpacity>
 
+          {/* Pin toggle button */}
           <View style={styles.headerActions}>
             <TouchableOpacity onPress={() => onTogglePin(item.id)} style={styles.iconBtn}>
               <Ionicons
@@ -75,7 +77,7 @@ const ListCard = React.memo(({
           </View>
         </View>
 
-        {/* Clickable Body Container */}
+        {/* Card body: list item previews */}
         <TouchableOpacity activeOpacity={0.8} onPress={() => onOpenDetail(item.id)}>
           <View style={styles.itemsContainer}>
             {item.items.map((subItem, index) => (
@@ -84,6 +86,7 @@ const ListCard = React.memo(({
                 style={styles.itemRow}
                 onPress={() => item.type === 'checklist' && onToggleComplete(item.id, subItem.id)}
               >
+                {/* Checklist icon */}
                 {item.type === 'checklist' && (
                   <Ionicons
                     name={subItem.isCompleted ? 'checkbox' : 'square-outline'}
@@ -92,9 +95,11 @@ const ListCard = React.memo(({
                     style={styles.checkIcon}
                   />
                 )}
+                {/* Number list prefix */}
                 {item.type === 'numbered' && (
                   <Text style={[styles.typeIndicator, { color: theme.textSecondary }]}>{index + 1}. </Text>
                 )}
+                {/* Bullet list prefix */}
                 {item.type === 'bulleted' && (
                   <Text style={[styles.typeIndicator, { color: theme.textSecondary }]}>• </Text>
                 )}
@@ -113,16 +118,23 @@ const ListCard = React.memo(({
 export default function ListsScreen() {
   const router = useRouter();
   const { lists, isDarkMode, togglePinList, toggleItemComplete, reorderLists } = useLists();
+  
+  // Tag and search filter state
   const [selectedTag, setSelectedTag] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
+  // Get active (non-archived) lists
   const unarchivedLists = useMemo(() => lists.filter((l) => !l.isArchived), [lists]);
+  
+  // Search index lookup instance
   const searchIndex = useMemo(() => new ListSearchIndex(unarchivedLists), [unarchivedLists]);
 
+  // List IDs matching active search query
   const searchMatchingIds = useMemo(() => {
     return searchIndex.search(searchQuery);
   }, [searchIndex, searchQuery]);
 
+  // Filter lists by selected tag and search query
   const filteredLists = useMemo(() => {
     return unarchivedLists.filter((list) => {
       const matchesTag = selectedTag === 'All' || list.tag === selectedTag;
@@ -131,12 +143,15 @@ export default function ListsScreen() {
     });
   }, [unarchivedLists, selectedTag, searchMatchingIds]);
 
+  // Get unique list of available tags for filter row
   const rawTags = unarchivedLists.map((l) => l.tag).filter((t): t is string => Boolean(t));
   const tags = useMemo(() => ['All', ...Array.from(new Set(rawTags))], [unarchivedLists]);
 
+  // Separate pinned and unpinned lists
   const pinnedLists = useMemo(() => filteredLists.filter((l) => l.isPinned), [filteredLists]);
   const unpinnedLists = useMemo(() => filteredLists.filter((l) => !l.isPinned), [filteredLists]);
 
+  // Update order after drag-and-drop for pinned lists
   const handleDragEndPinned = useCallback(
     ({ data }: { data: List[] }) => {
       const allUnpinned = lists.filter((l) => !l.isPinned);
@@ -145,6 +160,7 @@ export default function ListsScreen() {
     [lists, reorderLists]
   );
 
+  // Update order after drag-and-drop for unpinned lists
   const handleDragEndUnpinned = useCallback(
     ({ data }: { data: List[] }) => {
       const allPinned = lists.filter((l) => l.isPinned);
@@ -153,6 +169,7 @@ export default function ListsScreen() {
     [lists, reorderLists]
   );
 
+  // Dynamic theme colors
   const theme = useMemo(() => ({
     bg: isDarkMode ? '#121212' : '#F2F2F7',
     filterBg: isDarkMode ? '#1E1E1E' : '#FFFFFF',
@@ -166,6 +183,7 @@ export default function ListsScreen() {
     searchBg: isDarkMode ? '#2C2C2E' : '#E5E5EA',
   }), [isDarkMode]);
 
+  // Render method wrapper for DraggableFlatList
   const renderListItem = useCallback(
     ({ item, drag, isActive }: RenderItemParams<List>) => (
       <ListCard
@@ -184,7 +202,7 @@ export default function ListsScreen() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]} edges={['bottom']}>
-        {/* Search Bar */}
+        {/* Search input field */}
         <View style={styles.searchSection}>
           <View style={[styles.searchContainer, { backgroundColor: theme.searchBg }]}>
             <Ionicons name="search" size={18} color={theme.textSecondary} style={styles.searchIcon} />
@@ -199,7 +217,7 @@ export default function ListsScreen() {
           </View>
         </View>
 
-        {/* Filter Bar */}
+        {/* Horizontal tag filter pills */}
         <View style={[styles.filterContainer, { backgroundColor: theme.filterBg }]}>
           <FlatList
             horizontal
@@ -219,13 +237,16 @@ export default function ListsScreen() {
           />
         </View>
 
+        {/* Empty state fallback */}
         {filteredLists.length === 0 ? (
           <View style={styles.emptyContainer}>
             <Ionicons name="clipboard-outline" size={60} color={theme.textSecondary} />
             <Text style={[styles.emptyText, { color: theme.textSecondary }]}>No lists found</Text>
           </View>
         ) : (
+          /* Main list content */
           <ScrollView contentContainerStyle={styles.listContent}>
+            {/* Pinned lists section */}
             {pinnedLists.length > 0 && (
               <View style={styles.section}>
                 <Text style={[styles.sectionTitle, { color: theme.sectionHeader }]}>📌 PINNED</Text>
@@ -239,6 +260,7 @@ export default function ListsScreen() {
               </View>
             )}
 
+            {/* Unpinned lists section */}
             {unpinnedLists.length > 0 && (
               <View style={styles.section}>
                 {pinnedLists.length > 0 && (

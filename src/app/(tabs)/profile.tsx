@@ -14,9 +14,14 @@ import { useLists } from '../../context/ListContext';
 
 export default function ProfileScreen() {
   const router = useRouter();
+  
+  // Get lists state and dark mode handlers from context
   const { lists, isDarkMode, toggleDarkMode } = useLists();
+  
+  // Get responsive screen dimensions
   const { width } = useWindowDimensions();
 
+  // Compute stats overview metrics from global lists data
   const archivedCount = lists.filter((l) => l.isArchived).length;
   const totalLists = lists.length;
   const totalItems = lists.reduce((acc, list) => acc + list.items.length, 0);
@@ -25,8 +30,10 @@ export default function ProfileScreen() {
     0
   );
 
+  // Dynamic avatar size based on screen width
   const avatarSize = Math.min(width * 0.2, 80);
 
+  // Theme color styles
   const dynamicStyles = {
     container: { backgroundColor: isDarkMode ? '#121212' : '#F2F2F7' },
     card: { backgroundColor: isDarkMode ? '#1E1E1E' : '#FFFFFF' },
@@ -40,7 +47,7 @@ export default function ProfileScreen() {
       style={[styles.container, dynamicStyles.container]}
       contentContainerStyle={styles.content}
     >
-      {/* Profile Header */}
+      {/* Profile avatar and user info */}
       <View style={styles.profileHeader}>
         <View
           style={[
@@ -61,7 +68,7 @@ export default function ProfileScreen() {
         </Text>
       </View>
 
-      {/* Preferences Section */}
+      {/* App preferences settings (Dark mode toggle) */}
       <Text style={[styles.sectionTitle, dynamicStyles.textSecondary]}>
         Preferences
       </Text>
@@ -86,7 +93,7 @@ export default function ProfileScreen() {
         </View>
       </View>
 
-      {/* Archived Lists Navigation Link */}
+      {/* Navigation link to view archived lists */}
       <Text style={[styles.sectionTitle, dynamicStyles.textSecondary]}>
         Archived Lists
       </Text>
@@ -107,7 +114,7 @@ export default function ProfileScreen() {
         />
       </TouchableOpacity>
 
-      {/* Overview Section */}
+      {/* Summary stats grid */}
       <Text style={[styles.sectionTitle, dynamicStyles.textSecondary]}>
         Overview
       </Text>
@@ -132,7 +139,7 @@ export default function ProfileScreen() {
         </View>
       </View>
 
-      {/* About Section */}
+      {/* App info section */}
       <Text style={[styles.sectionTitle, dynamicStyles.textSecondary]}>
         About
       </Text>

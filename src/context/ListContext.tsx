@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useColorScheme } from 'react-native';
 import { List, ListType } from '../types/list';
 
+// Type definition for context state and helper actions
 interface ListContextType {
   lists: List[];
   isDarkMode: boolean;
@@ -16,8 +17,10 @@ interface ListContextType {
   reorderLists: (newLists: List[]) => void;
 }
 
+// React context initialization
 const ListContext = createContext<ListContextType | undefined>(undefined);
 
+// Initial mock data seed
 const INITIAL_LISTS: List[] = [
   {
     id: '1',
@@ -50,6 +53,7 @@ const INITIAL_LISTS: List[] = [
 ];
 
 export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // Sync system dark mode preference with app theme state
   const systemColorScheme = useColorScheme();
   const [isDarkMode, setIsDarkMode] = useState<boolean>(systemColorScheme === 'dark');
 
@@ -57,14 +61,18 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsDarkMode(systemColorScheme === 'dark');
   }, [systemColorScheme]);
 
+  // Global state for list collection
   const [lists, setLists] = useState<List[]>(INITIAL_LISTS);
 
+  // Toggle theme mode manually
   const toggleDarkMode = () => setIsDarkMode((prev) => !prev);
 
+  // Update overall list order (e.g. after reordering via drag-and-drop)
   const reorderLists = (newLists: List[]) => {
     setLists(newLists);
   };
 
+  // Add a new list to state
   const addList = (title: string, type: ListType, tag?: string, itemTexts: string[] = []) => {
     const newList: List = {
       id: Date.now().toString(),
@@ -83,6 +91,7 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLists((prev) => [newList, ...prev]);
   };
 
+  // Update existing list attributes and items
   const updateList = (id: string, title: string, type: ListType, tag?: string, itemTexts: string[] = []) => {
     setLists((prev) =>
       prev.map((list) => {
@@ -102,22 +111,26 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
   };
 
+  // Remove a list permanently
   const deleteList = (id: string) => {
     setLists((prev) => prev.filter((list) => list.id !== id));
   };
 
+  // Toggle pin status for a specific list
   const togglePinList = (id: string) => {
     setLists((prev) =>
       prev.map((list) => (list.id === id ? { ...list, isPinned: !list.isPinned } : list))
     );
   };
 
+  // Toggle archive status for a specific list
   const toggleArchiveList = (id: string) => {
     setLists((prev) =>
       prev.map((list) => (list.id === id ? { ...list, isArchived: !list.isArchived } : list))
     );
   };
 
+  // Toggle checklist item completion status
   const toggleItemComplete = (listId: string, itemId: string) => {
     setLists((prev) =>
       prev.map((list) => {
@@ -132,6 +145,7 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
   };
 
+  // Append a single item entry to an existing list
   const addItemToList = (listId: string, text: string) => {
     setLists((prev) =>
       prev.map((list) => {
@@ -165,6 +179,7 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 };
 
+// Custom hook for accessing list context safely
 export const useLists = () => {
   const context = useContext(ListContext);
   if (!context) {

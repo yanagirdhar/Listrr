@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -16,9 +16,12 @@ import { ListType, ListItem } from '../../types/list';
 
 export default function CreateScreen() {
   const router = useRouter();
+  
+  // Get editId parameter if editing an existing list
   const { editId } = useLocalSearchParams<{ editId?: string }>();
   const { lists, addList, updateList, isDarkMode } = useLists();
 
+  // Form state
   const [title, setTitle] = useState('');
   const [tag, setTag] = useState('');
   const [type, setType] = useState<ListType>('checklist');
@@ -26,9 +29,11 @@ export default function CreateScreen() {
     { id: Date.now().toString(), text: '', isCompleted: false },
   ]);
 
+  // Refs for tracking input focus and scroll view position
   const inputsRef = useRef<{ [key: string]: TextInput | null }>({});
   const scrollViewRef = useRef<ScrollView | null>(null);
 
+  // Reset form inputs back to default
   const resetForm = useCallback(() => {
     setTitle('');
     setTag('');
@@ -36,7 +41,7 @@ export default function CreateScreen() {
     setItems([{ id: Date.now().toString(), text: '', isCompleted: false }]);
   }, []);
 
-  // Hydrate initial data only when editId changes or initial screen focus occurs
+  // Load existing list data if editing, or clear form if creating new
   useEffect(() => {
     if (editId) {
       const target = lists.find((l) => l.id === editId);
@@ -53,9 +58,9 @@ export default function CreateScreen() {
     } else {
       resetForm();
     }
-  }, [editId]); // Intentionally omitting `lists` to prevent re-renders while typing
+  }, [editId]);
 
-  // Reset parameters on screen blur without causing mid-typing layout jumps
+  // Clear edit parameters and reset form when leaving the screen
   useFocusEffect(
     useCallback(() => {
       return () => {
@@ -67,6 +72,7 @@ export default function CreateScreen() {
     }, [editId, resetForm, router])
   );
 
+  // Theme styles based on dark mode
   const theme = {
     bg: isDarkMode ? '#121212' : '#F2F2F7',
     cardBg: isDarkMode ? '#1E1E1E' : '#FFFFFF',
@@ -74,31 +80,35 @@ export default function CreateScreen() {
     textSecondary: isDarkMode ? '#A0A0A0' : '#8E8E93',
   };
 
+  // Add a new empty item field and scroll down to focus it
   const handleAddItem = () => {
     const newId = Date.now().toString();
     setItems((prev) => [...prev, { id: newId, text: '', isCompleted: false }]);
 
-    // Smoothly focus the new input and scroll to bottom
     setTimeout(() => {
       inputsRef.current[newId]?.focus();
       scrollViewRef.current?.scrollToEnd({ animated: true });
     }, 50);
   };
 
+  // Delete an item field (keeps at least 1 item)
   const handleRemoveItem = (id: string) => {
     if (items.length <= 1) return;
     setItems((prev) => prev.filter((item) => item.id !== id));
   };
 
+  // Update text for a specific item
   const handleItemChange = (text: string, id: string) => {
     setItems((prev) =>
       prev.map((item) => (item.id === id ? { ...item, text } : item))
     );
   };
 
+  // Save changes to context and go back to main screen
   const handleSave = () => {
     if (!title.trim()) return;
 
+    // Extract item texts and remove empty items
     const stringItems = items
       .map((i) => i.text.trim())
       .filter((text) => text.length > 0);
@@ -130,7 +140,7 @@ export default function CreateScreen() {
           {editId ? 'Edit List' : 'Create New List'}
         </Text>
 
-        {/* Title Input */}
+        {/* Title input */}
         <View style={styles.fieldGroup}>
           <Text style={[styles.label, { color: theme.textSecondary }]}>TITLE</Text>
           <TextInput
@@ -146,7 +156,7 @@ export default function CreateScreen() {
           />
         </View>
 
-        {/* Tag Input */}
+        {/* Tag input */}
         <View style={styles.fieldGroup}>
           <Text style={[styles.label, { color: theme.textSecondary }]}>TAG (OPTIONAL)</Text>
           <TextInput
@@ -162,7 +172,7 @@ export default function CreateScreen() {
           />
         </View>
 
-        {/* List Type Selector */}
+        {/* List type selector */}
         <View style={styles.fieldGroup}>
           <Text style={[styles.label, { color: theme.textSecondary }]}>TYPE</Text>
           <View style={styles.typeSelector}>
@@ -190,7 +200,7 @@ export default function CreateScreen() {
           </View>
         </View>
 
-        {/* Items List */}
+        {/* List items */}
         <View style={styles.fieldGroup}>
           <Text style={[styles.label, { color: theme.textSecondary }]}>ITEMS</Text>
           {items.map((item, index) => (
@@ -198,6 +208,7 @@ export default function CreateScreen() {
               <Text style={[styles.itemPrefix, { color: theme.textSecondary }]}>
                 {type === 'numbered' ? `${index + 1}.` : '•'}
               </Text>
+              
               <TextInput
                 ref={(el) => {
                   inputsRef.current[item.id] = el;
@@ -211,9 +222,10 @@ export default function CreateScreen() {
                 value={item.text}
                 onChangeText={(text) => handleItemChange(text, item.id)}
                 returnKeyType="next"
-                onSubmitEditing={handleAddItem}
+                onSubmitEditing={handleAddItem} // Adds new item when Enter is pressed
                 blurOnSubmit={false}
               />
+
               <TouchableOpacity
                 onPress={() => handleRemoveItem(item.id)}
                 style={styles.removeBtn}
@@ -223,7 +235,7 @@ export default function CreateScreen() {
             </View>
           ))}
 
-          {/* Add Item Button */}
+          {/* Button to manually add another item */}
           <TouchableOpacity
             style={[styles.addItemBtn, { backgroundColor: theme.cardBg }]}
             onPress={handleAddItem}
@@ -234,7 +246,7 @@ export default function CreateScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Save Button */}
+        {/* Submit button */}
         <TouchableOpacity
           style={[styles.saveBtn, !title.trim() && styles.saveBtnDisabled]}
           onPress={handleSave}

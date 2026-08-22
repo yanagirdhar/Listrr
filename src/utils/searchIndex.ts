@@ -1,10 +1,12 @@
 import { List } from '../types/list';
 
+// Individual node structure within the prefix search Trie tree
 class TrieNode {
   children: Map<string, TrieNode> = new Map();
   listIds: Set<string> = new Set<string>();
 }
 
+// In-memory Trie index for rapid prefix-matching search across lists
 export class ListSearchIndex {
   private root = new TrieNode();
 
@@ -12,6 +14,7 @@ export class ListSearchIndex {
     this.buildIndex(lists);
   }
 
+  // Insert individual word characters into Trie and map to target list ID
   private insertWord(word: string, listId: string) {
     let node = this.root;
     const cleanWord = word.toLowerCase().trim();
@@ -24,6 +27,7 @@ export class ListSearchIndex {
     }
   }
 
+  // Parse list fields (title, tag, and item text) to populate search tree
   private buildIndex(lists: List[]) {
     for (const list of lists) {
       // Index title words
@@ -32,14 +36,14 @@ export class ListSearchIndex {
       if (list.tag) {
         list.tag.split(/\s+/).forEach((w) => this.insertWord(w, list.id));
       }
-      // Index sub-item words
+      // Index sub-item text words
       for (const item of list.items) {
         item.text.split(/\s+/).forEach((w) => this.insertWord(w, list.id));
       }
     }
   }
 
-  // O(K) prefix search lookup
+  // Perform prefix lookup for search query string and return matching list IDs
   public search(query: string): Set<string> | null {
     const trimmed = query.toLowerCase().trim();
     if (!trimmed) return null;
@@ -63,7 +67,7 @@ export class ListSearchIndex {
       if (resultIds === null) {
         resultIds = new Set<string>(matchingIds);
       } else {
-        // Intersect matching sets safely without array conversion inference errors
+        // Intersect matching sets for multi-word search refinement
         const nextIntersection = new Set<string>();
         resultIds.forEach((id: string) => {
           if (matchingIds.has(id)) {
