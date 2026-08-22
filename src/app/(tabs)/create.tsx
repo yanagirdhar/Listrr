@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,19 +9,38 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useLists } from '../../context/ListContext';
 import { ListType } from '../../types/list';
 
 export default function CreateListScreen() {
   const router = useRouter();
-  const { addList, isDarkMode } = useLists();
+  const { editId } = useLocalSearchParams<{ editId?: string }>();
+  const { lists, addList, updateList, isDarkMode } = useLists();
 
   const [title, setTitle] = useState('');
   const [tag, setTag] = useState('');
   const [type, setType] = useState<ListType>('checklist');
   const [items, setItems] = useState<string[]>(['']);
+
+  // Pre-fill fields if opened in edit mode
+  useEffect(() => {
+    if (editId) {
+      const existingList = lists.find((l) => l.id === editId);
+      if (existingList) {
+        setTitle(existingList.title);
+        setTag(existingList.tag || '');
+        setType(existingList.type);
+        setItems(existingList.items.map((item) => item.text));
+      }
+    } else {
+      setTitle('');
+      setTag('');
+      setType('checklist');
+      setItems(['']);
+    }
+  }, [editId, lists]);
 
   const theme = {
     bg: isDarkMode ? '#121212' : '#FFFFFF',
@@ -49,13 +68,20 @@ export default function CreateListScreen() {
     if (!title.trim()) return;
 
     const filteredItems = items.filter((i) => i.trim().length > 0);
-    addList(title, type, tag.trim() || 'General', filteredItems);
 
+    if (editId) {
+      updateList(editId, title.trim(), type, tag.trim() || 'General', filteredItems);
+    } else {
+      addList(title.trim(), type, tag.trim() || 'General', filteredItems);
+    }
+
+    // Reset fields and clear params
     setTitle('');
     setTag('');
     setType('checklist');
     setItems(['']);
-    router.push('/');
+    router.setParams({ editId: undefined });
+    router.replace('/');
   };
 
   return (
@@ -64,6 +90,10 @@ export default function CreateListScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.content}>
+        <Text style={[styles.screenHeader, { color: theme.textPrimary }]}>
+          {editId ? 'Edit List' : 'Create List'}
+        </Text>
+
         <Text style={[styles.label, { color: theme.textSecondary }]}>List Title</Text>
         <TextInput
           style={[styles.input, { backgroundColor: theme.inputBg, color: theme.textPrimary }]}
@@ -142,7 +172,7 @@ export default function CreateListScreen() {
           onPress={handleSave}
           disabled={!title.trim()}
         >
-          <Text style={styles.submitBtnText}>Save List</Text>
+          <Text style={styles.submitBtnText}>{editId ? 'Update List' : 'Save List'}</Text>
         </TouchableOpacity>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -151,6 +181,7 @@ export default function CreateListScreen() {
 
 const styles = StyleSheet.create({
   content: { padding: '5%' },
+  screenHeader: { fontSize: 24, fontWeight: '700', marginTop: 8, marginBottom: 16 },
   label: { fontSize: 14, fontWeight: '600', marginBottom: 8, marginTop: 12 },
   input: { borderRadius: 8, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16 },
   typeSelector: { flexDirection: 'row', gap: 8 },

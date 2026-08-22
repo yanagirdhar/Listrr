@@ -1,17 +1,18 @@
-export type ListType = 'numbered' | 'bulleted' | 'checklist';
+export type ListType = 'checklist' | 'numbered' | 'bulleted';
 
-export type ListItem = {
+export interface ListItem {
   id: string;
   text: string;
   isCompleted?: boolean;
-};
+}
 
-export type List = {
+export interface List {
   id: string;
   title: string;
   type: ListType;
-  items: ListItem[];
   tag?: string;
   isPinned: boolean;
+  isArchived?: boolean;
   createdAt: string;
-};
+  items: ListItem[];
+}

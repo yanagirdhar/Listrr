@@ -5,15 +5,19 @@ import {
   StyleSheet,
   ScrollView,
   Switch,
+  TouchableOpacity,
   useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { useLists } from '../../context/ListContext';
 
 export default function ProfileScreen() {
+  const router = useRouter();
   const { lists, isDarkMode, toggleDarkMode } = useLists();
   const { width } = useWindowDimensions();
 
+  const archivedCount = lists.filter((l) => l.isArchived).length;
   const totalLists = lists.length;
   const totalItems = lists.reduce((acc, list) => acc + list.items.length, 0);
   const completedItems = lists.reduce(
@@ -36,6 +40,7 @@ export default function ProfileScreen() {
       style={[styles.container, dynamicStyles.container]}
       contentContainerStyle={styles.content}
     >
+      {/* Profile Header */}
       <View style={styles.profileHeader}>
         <View
           style={[
@@ -56,6 +61,7 @@ export default function ProfileScreen() {
         </Text>
       </View>
 
+      {/* Preferences Section */}
       <Text style={[styles.sectionTitle, dynamicStyles.textSecondary]}>
         Preferences
       </Text>
@@ -80,6 +86,28 @@ export default function ProfileScreen() {
         </View>
       </View>
 
+      {/* Archived Lists Navigation Link */}
+      <Text style={[styles.sectionTitle, dynamicStyles.textSecondary]}>
+        Archived Lists
+      </Text>
+      <TouchableOpacity
+        style={[styles.card, dynamicStyles.card, styles.settingRow]}
+        onPress={() => router.push('/archived')}
+      >
+        <View style={styles.settingLabelGroup}>
+          <Ionicons name="archive-outline" size={20} color="#FF9500" />
+          <Text style={[styles.settingLabel, dynamicStyles.textPrimary]}>
+            View Archived Lists ({archivedCount})
+          </Text>
+        </View>
+        <Ionicons
+          name="chevron-forward"
+          size={20}
+          color={dynamicStyles.textSecondary.color}
+        />
+      </TouchableOpacity>
+
+      {/* Overview Section */}
       <Text style={[styles.sectionTitle, dynamicStyles.textSecondary]}>
         Overview
       </Text>
@@ -104,6 +132,7 @@ export default function ProfileScreen() {
         </View>
       </View>
 
+      {/* About Section */}
       <Text style={[styles.sectionTitle, dynamicStyles.textSecondary]}>
         About
       </Text>

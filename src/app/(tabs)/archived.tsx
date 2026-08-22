@@ -21,7 +21,6 @@ import { useLists } from '../../context/ListContext';
 import { List } from '../../types/list';
 import { ListSearchIndex } from '../../utils/searchIndex';
 
-// Memoized Card Component
 const ListCard = React.memo(({ 
   item, 
   drag, 
@@ -43,12 +42,10 @@ const ListCard = React.memo(({
     <ScaleDecorator>
       <View style={[styles.card, { backgroundColor: theme.cardBg }, isActive && styles.activeCard]}>
         <View style={styles.cardHeader}>
-          {/* Drag Handle */}
           <TouchableOpacity onLongPress={drag} delayLongPress={100} style={styles.dragHandle}>
             <Ionicons name="menu-outline" size={22} color={theme.textSecondary} />
           </TouchableOpacity>
 
-          {/* Clickable Header Area */}
           <TouchableOpacity 
             style={styles.headerLeft} 
             activeOpacity={0.7} 
@@ -75,7 +72,6 @@ const ListCard = React.memo(({
           </View>
         </View>
 
-        {/* Clickable Body Container */}
         <TouchableOpacity activeOpacity={0.8} onPress={() => onOpenDetail(item.id)}>
           <View style={styles.itemsContainer}>
             {item.items.map((subItem, index) => (
@@ -110,47 +106,50 @@ const ListCard = React.memo(({
   );
 });
 
-export default function ListsScreen() {
+export default function ArchivedListsScreen() {
   const router = useRouter();
   const { lists, isDarkMode, togglePinList, toggleItemComplete, reorderLists } = useLists();
   const [selectedTag, setSelectedTag] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  const unarchivedLists = useMemo(() => lists.filter((l) => !l.isArchived), [lists]);
-  const searchIndex = useMemo(() => new ListSearchIndex(unarchivedLists), [unarchivedLists]);
+  // Target ONLY archived lists
+  const archivedLists = useMemo(() => lists.filter((l) => l.isArchived), [lists]);
+  const searchIndex = useMemo(() => new ListSearchIndex(archivedLists), [archivedLists]);
 
   const searchMatchingIds = useMemo(() => {
     return searchIndex.search(searchQuery);
   }, [searchIndex, searchQuery]);
 
   const filteredLists = useMemo(() => {
-    return unarchivedLists.filter((list) => {
+    return archivedLists.filter((list) => {
       const matchesTag = selectedTag === 'All' || list.tag === selectedTag;
       const matchesSearch = searchMatchingIds === null || searchMatchingIds.has(list.id);
       return matchesTag && matchesSearch;
     });
-  }, [unarchivedLists, selectedTag, searchMatchingIds]);
+  }, [archivedLists, selectedTag, searchMatchingIds]);
 
-  const rawTags = unarchivedLists.map((l) => l.tag).filter((t): t is string => Boolean(t));
-  const tags = useMemo(() => ['All', ...Array.from(new Set(rawTags))], [unarchivedLists]);
+  const rawTags = archivedLists.map((l) => l.tag).filter((t): t is string => Boolean(t));
+  const tags = useMemo(() => ['All', ...Array.from(new Set(rawTags))], [archivedLists]);
 
   const pinnedLists = useMemo(() => filteredLists.filter((l) => l.isPinned), [filteredLists]);
   const unpinnedLists = useMemo(() => filteredLists.filter((l) => !l.isPinned), [filteredLists]);
 
   const handleDragEndPinned = useCallback(
     ({ data }: { data: List[] }) => {
-      const allUnpinned = lists.filter((l) => !l.isPinned);
-      reorderLists([...data, ...allUnpinned]);
+      const nonArchived = lists.filter((l) => !l.isArchived);
+      const unpinnedArchived = archivedLists.filter((l) => !l.isPinned);
+      reorderLists([...nonArchived, ...data, ...unpinnedArchived]);
     },
-    [lists, reorderLists]
+    [lists, archivedLists, reorderLists]
   );
 
   const handleDragEndUnpinned = useCallback(
     ({ data }: { data: List[] }) => {
-      const allPinned = lists.filter((l) => l.isPinned);
-      reorderLists([...allPinned, ...data]);
+      const nonArchived = lists.filter((l) => !l.isArchived);
+      const pinnedArchived = archivedLists.filter((l) => l.isPinned);
+      reorderLists([...nonArchived, ...pinnedArchived, ...data]);
     },
-    [lists, reorderLists]
+    [lists, archivedLists, reorderLists]
   );
 
   const theme = useMemo(() => ({
@@ -190,7 +189,7 @@ export default function ListsScreen() {
             <Ionicons name="search" size={18} color={theme.textSecondary} style={styles.searchIcon} />
             <TextInput
               style={[styles.searchInput, { color: theme.textPrimary }]}
-              placeholder="Search lists or items..."
+              placeholder="Search archived lists..."
               placeholderTextColor={theme.textSecondary}
               value={searchQuery}
               onChangeText={setSearchQuery}
@@ -221,14 +220,14 @@ export default function ListsScreen() {
 
         {filteredLists.length === 0 ? (
           <View style={styles.emptyContainer}>
-            <Ionicons name="clipboard-outline" size={60} color={theme.textSecondary} />
-            <Text style={[styles.emptyText, { color: theme.textSecondary }]}>No lists found</Text>
+            <Ionicons name="archive-outline" size={60} color={theme.textSecondary} />
+            <Text style={[styles.emptyText, { color: theme.textSecondary }]}>No archived lists found</Text>
           </View>
         ) : (
           <ScrollView contentContainerStyle={styles.listContent}>
             {pinnedLists.length > 0 && (
               <View style={styles.section}>
-                <Text style={[styles.sectionTitle, { color: theme.sectionHeader }]}>📌 PINNED</Text>
+                <Text style={[styles.sectionTitle, { color: theme.sectionHeader }]}>📌 PINNED ARCHIVED</Text>
                 <DraggableFlatList
                   data={pinnedLists}
                   onDragEnd={handleDragEndPinned}
@@ -242,7 +241,7 @@ export default function ListsScreen() {
             {unpinnedLists.length > 0 && (
               <View style={styles.section}>
                 {pinnedLists.length > 0 && (
-                  <Text style={[styles.sectionTitle, { color: theme.sectionHeader }]}>OTHER LISTS</Text>
+                  <Text style={[styles.sectionTitle, { color: theme.sectionHeader }]}>OTHER ARCHIVED LISTS</Text>
                 )}
                 <DraggableFlatList
                   data={unpinnedLists}

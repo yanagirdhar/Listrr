@@ -85,6 +85,15 @@ export default function TabLayout() {
             ),
           }}
         />
+
+        {/* Hidden screen inside tab layout to keep bottom tab bar visible */}
+        <Tabs.Screen
+          name="archived"
+          options={{
+            title: 'Archived Lists',
+            href: null,
+          }}
+        />
       </Tabs>
     </View>
   );

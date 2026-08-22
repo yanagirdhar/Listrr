@@ -1,14 +1,16 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useColorScheme } from 'react-native';
-import { List, ListItem, ListType } from '../types/list';
+import { List, ListType } from '../types/list';
 
 interface ListContextType {
   lists: List[];
   isDarkMode: boolean;
   toggleDarkMode: () => void;
   addList: (title: string, type: ListType, tag?: string, items?: string[]) => void;
+  updateList: (id: string, title: string, type: ListType, tag?: string, items?: string[]) => void;
   deleteList: (id: string) => void;
   togglePinList: (id: string) => void;
+  toggleArchiveList: (id: string) => void;
   toggleItemComplete: (listId: string, itemId: string) => void;
   addItemToList: (listId: string, text: string) => void;
   reorderLists: (newLists: List[]) => void;
@@ -23,6 +25,7 @@ const INITIAL_LISTS: List[] = [
     type: 'checklist',
     tag: 'Shopping',
     isPinned: true,
+    isArchived: false,
     createdAt: new Date().toISOString(),
     items: [
       { id: '101', text: 'Oat milk', isCompleted: true },
@@ -36,6 +39,7 @@ const INITIAL_LISTS: List[] = [
     type: 'numbered',
     tag: 'Work',
     isPinned: false,
+    isArchived: false,
     createdAt: new Date().toISOString(),
     items: [
       { id: '201', text: 'Run production build' },
@@ -68,6 +72,7 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
       type,
       tag: tag || 'General',
       isPinned: false,
+      isArchived: false,
       createdAt: new Date().toISOString(),
       items: itemTexts.map((text, idx) => ({
         id: `${Date.now()}-${idx}`,
@@ -78,15 +83,38 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLists((prev) => [newList, ...prev]);
   };
 
+  const updateList = (id: string, title: string, type: ListType, tag?: string, itemTexts: string[] = []) => {
+    setLists((prev) =>
+      prev.map((list) => {
+        if (list.id !== id) return list;
+        return {
+          ...list,
+          title,
+          type,
+          tag: tag || 'General',
+          items: itemTexts.map((text, idx) => ({
+            id: list.items[idx]?.id || `${Date.now()}-${idx}`,
+            text,
+            isCompleted: list.items[idx]?.isCompleted || false,
+          })),
+        };
+      })
+    );
+  };
+
   const deleteList = (id: string) => {
     setLists((prev) => prev.filter((list) => list.id !== id));
   };
 
   const togglePinList = (id: string) => {
     setLists((prev) =>
-      prev.map((list) =>
-        list.id === id ? { ...list, isPinned: !list.isPinned } : list
-      )
+      prev.map((list) => (list.id === id ? { ...list, isPinned: !list.isPinned } : list))
+    );
+  };
+
+  const toggleArchiveList = (id: string) => {
+    setLists((prev) =>
+      prev.map((list) => (list.id === id ? { ...list, isArchived: !list.isArchived } : list))
     );
   };
 
@@ -123,8 +151,10 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isDarkMode,
         toggleDarkMode,
         addList,
+        updateList,
         deleteList,
         togglePinList,
+        toggleArchiveList,
         toggleItemComplete,
         addItemToList,
         reorderLists,
