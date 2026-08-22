@@ -55,6 +55,7 @@ Ensure you have **Node.js** (v18+) and **npm** installed on your system.
    ```
 
 ### Project Structure
+```
 src/
 ├── app/                 # Expo Router file-based pages
 │   ├── (tabs)/          # Bottom tab navigation screens
@@ -67,3 +68,4 @@ src/
 │   └── ListContext.tsx  # Global state for lists and dark mode
 └── types/
     └── list.ts          # TypeScript interfaces
+```
