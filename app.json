@@ -1,12 +1,16 @@
 {
   "expo": {
-    "name": "todo-app",
-    "slug": "todo-app",
+    "name": "Listrr",
+    "slug": "listrr",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "todoapp",
+    "scheme": "listrr",
     "userInterfaceStyle": "automatic",
+    "androidNavigationBar": {
+      "visible": "edgeToEdge",
+      "barStyle": "dark-content"
+    },
     "ios": {
       "icon": "./assets/expo.icon"
     },
