@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { useColorScheme } from 'react-native';
 import { List, ListItem, ListType } from '../types/list';
 
 interface ListContextType {
@@ -10,6 +11,7 @@ interface ListContextType {
   togglePinList: (id: string) => void;
   toggleItemComplete: (listId: string, itemId: string) => void;
   addItemToList: (listId: string, text: string) => void;
+  reorderLists: (newLists: List[]) => void;
 }
 
 const ListContext = createContext<ListContextType | undefined>(undefined);
@@ -44,10 +46,20 @@ const INITIAL_LISTS: List[] = [
 ];
 
 export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const systemColorScheme = useColorScheme();
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(systemColorScheme === 'dark');
+
+  useEffect(() => {
+    setIsDarkMode(systemColorScheme === 'dark');
+  }, [systemColorScheme]);
+
   const [lists, setLists] = useState<List[]>(INITIAL_LISTS);
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
 
   const toggleDarkMode = () => setIsDarkMode((prev) => !prev);
+
+  const reorderLists = (newLists: List[]) => {
+    setLists(newLists);
+  };
 
   const addList = (title: string, type: ListType, tag?: string, itemTexts: string[] = []) => {
     const newList: List = {
@@ -115,6 +127,7 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
         togglePinList,
         toggleItemComplete,
         addItemToList,
+        reorderLists,
       }}
     >
       {children}

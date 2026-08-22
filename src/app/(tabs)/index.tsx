@@ -1,35 +1,158 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   FlatList,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import DraggableFlatList, {
+  RenderItemParams,
+  ScaleDecorator,
+} from 'react-native-draggable-flatlist';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLists } from '../../context/ListContext';
 import { List } from '../../types/list';
 
+// Memoized Card Component with dedicated drag handle
+const ListCard = React.memo(({ 
+  item, 
+  drag, 
+  isActive, 
+  theme, 
+  onTogglePin, 
+  onDelete, 
+  onToggleComplete 
+}: {
+  item: List;
+  drag: () => void;
+  isActive: boolean;
+  theme: any;
+  onTogglePin: (id: string) => void;
+  onDelete: (id: string) => void;
+  onToggleComplete: (listId: string, itemId: string) => void;
+}) => {
+  return (
+    <ScaleDecorator>
+      <View
+        style={[
+          styles.card,
+          { backgroundColor: theme.cardBg },
+          isActive && styles.activeCard,
+        ]}
+      >
+        <View style={styles.cardHeader}>
+          {/* Drag Handle Button */}
+          <TouchableOpacity onLongPress={drag} delayLongPress={100} style={styles.dragHandle}>
+            <Ionicons name="menu-outline" size={22} color={theme.textSecondary} />
+          </TouchableOpacity>
+
+          <View style={styles.headerLeft}>
+            <Text
+              style={[styles.cardTitle, { color: theme.textPrimary }]}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
+              {item.title}
+            </Text>
+            {item.tag && (
+              <View style={[styles.tagBadge, { backgroundColor: theme.tagBadgeBg }]}>
+                <Text style={styles.tagText} numberOfLines={1}>
+                  {item.tag}
+                </Text>
+              </View>
+            )}
+          </View>
+
+          <View style={styles.headerActions}>
+            <TouchableOpacity onPress={() => onTogglePin(item.id)} style={styles.iconBtn}>
+              <Ionicons
+                name={item.isPinned ? 'pin' : 'pin-outline'}
+                size={20}
+                color={item.isPinned ? '#208AEF' : theme.textSecondary}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => onDelete(item.id)} style={styles.iconBtn}>
+              <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.itemsContainer}>
+          {item.items.map((subItem, index) => (
+            <Pressable
+              key={subItem.id}
+              style={styles.itemRow}
+              onPress={() => item.type === 'checklist' && onToggleComplete(item.id, subItem.id)}
+            >
+              {item.type === 'checklist' && (
+                <Ionicons
+                  name={subItem.isCompleted ? 'checkbox' : 'square-outline'}
+                  size={20}
+                  color={subItem.isCompleted ? '#34C759' : theme.textSecondary}
+                  style={styles.checkIcon}
+                />
+              )}
+              {item.type === 'numbered' && (
+                <Text style={[styles.typeIndicator, { color: theme.textSecondary }]}>
+                  {index + 1}.{' '}
+                </Text>
+              )}
+              {item.type === 'bulleted' && (
+                <Text style={[styles.typeIndicator, { color: theme.textSecondary }]}>• </Text>
+              )}
+              <Text
+                style={[
+                  styles.itemText,
+                  { color: theme.textPrimary },
+                  subItem.isCompleted && styles.completedText,
+                ]}
+              >
+                {subItem.text}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+    </ScaleDecorator>
+  );
+});
+
 export default function ListsScreen() {
-  const { lists, isDarkMode, togglePinList, deleteList, toggleItemComplete } = useLists();
+  const { lists, isDarkMode, togglePinList, deleteList, toggleItemComplete, reorderLists } = useLists();
   const [selectedTag, setSelectedTag] = useState<string>('All');
 
   const rawTags = lists.map((l) => l.tag).filter((t): t is string => Boolean(t));
-  const tags = ['All', ...Array.from(new Set(rawTags))];
+  const tags = useMemo(() => ['All', ...Array.from(new Set(rawTags))], [lists]);
 
-  const filteredLists = lists.filter((list) => {
-    if (selectedTag === 'All') return true;
-    return list.tag === selectedTag;
-  });
+  const filteredLists = useMemo(() => {
+    return lists.filter((list) => selectedTag === 'All' || list.tag === selectedTag);
+  }, [lists, selectedTag]);
 
-  const sortedLists = [...filteredLists].sort((a, b) => {
-    if (a.isPinned === b.isPinned) return 0;
-    return a.isPinned ? -1 : 1;
-  });
+  const pinnedLists = useMemo(() => filteredLists.filter((l) => l.isPinned), [filteredLists]);
+  const unpinnedLists = useMemo(() => filteredLists.filter((l) => !l.isPinned), [filteredLists]);
 
-  const theme = {
+  const handleDragEndPinned = useCallback(
+    ({ data }: { data: List[] }) => {
+      const allUnpinned = lists.filter((l) => !l.isPinned);
+      reorderLists([...data, ...allUnpinned]);
+    },
+    [lists, reorderLists]
+  );
+
+  const handleDragEndUnpinned = useCallback(
+    ({ data }: { data: List[] }) => {
+      const allPinned = lists.filter((l) => l.isPinned);
+      reorderLists([...allPinned, ...data]);
+    },
+    [lists, reorderLists]
+  );
+
+  const theme = useMemo(() => ({
     bg: isDarkMode ? '#121212' : '#F2F2F7',
     filterBg: isDarkMode ? '#1E1E1E' : '#FFFFFF',
     cardBg: isDarkMode ? '#1E1E1E' : '#FFFFFF',
@@ -38,126 +161,103 @@ export default function ListsScreen() {
     chipBg: isDarkMode ? '#2C2C2E' : '#E5E5EA',
     chipText: isDarkMode ? '#FFFFFF' : '#000000',
     tagBadgeBg: isDarkMode ? '#1A385C' : '#E6F4FE',
-  };
+    sectionHeader: isDarkMode ? '#8E8E93' : '#6C6C70',
+  }), [isDarkMode]);
 
-  const renderListItem = ({ item: list }: { item: List }) => (
-    <View style={[styles.card, { backgroundColor: theme.cardBg }]}>
-      <View style={styles.cardHeader}>
-        <View style={styles.headerLeft}>
-          <Text
-            style={[styles.cardTitle, { color: theme.textPrimary }]}
-            numberOfLines={1}
-            ellipsizeMode="tail"
-          >
-            {list.title}
-          </Text>
-          {list.tag && (
-            <View style={[styles.tagBadge, { backgroundColor: theme.tagBadgeBg }]}>
-              <Text style={styles.tagText} numberOfLines={1}>
-                {list.tag}
-              </Text>
-            </View>
-          )}
-        </View>
-
-        <View style={styles.headerActions}>
-          <TouchableOpacity onPress={() => togglePinList(list.id)} style={styles.iconBtn}>
-            <Ionicons
-              name={list.isPinned ? 'pin' : 'pin-outline'}
-              size={20}
-              color={list.isPinned ? '#208AEF' : theme.textSecondary}
-            />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => deleteList(list.id)} style={styles.iconBtn}>
-            <Ionicons name="trash-outline" size={20} color="#FF3B30" />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      <View style={styles.itemsContainer}>
-        {list.items.map((item, index) => (
-          <Pressable
-            key={item.id}
-            style={styles.itemRow}
-            onPress={() => list.type === 'checklist' && toggleItemComplete(list.id, item.id)}
-          >
-            {list.type === 'checklist' && (
-              <Ionicons
-                name={item.isCompleted ? 'checkbox' : 'square-outline'}
-                size={20}
-                color={item.isCompleted ? '#34C759' : theme.textSecondary}
-                style={styles.checkIcon}
-              />
-            )}
-            {list.type === 'numbered' && (
-              <Text style={[styles.typeIndicator, { color: theme.textSecondary }]}>
-                {index + 1}.{' '}
-              </Text>
-            )}
-            {list.type === 'bulleted' && (
-              <Text style={[styles.typeIndicator, { color: theme.textSecondary }]}>• </Text>
-            )}
-            <Text
-              style={[
-                styles.itemText,
-                { color: theme.textPrimary },
-                item.isCompleted && styles.completedText,
-              ]}
-            >
-              {item.text}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-    </View>
+  const renderListItem = useCallback(
+    ({ item, drag, isActive }: RenderItemParams<List>) => (
+      <ListCard
+        item={item}
+        drag={drag}
+        isActive={isActive}
+        theme={theme}
+        onTogglePin={togglePinList}
+        onDelete={deleteList}
+        onToggleComplete={toggleItemComplete}
+      />
+    ),
+    [theme, togglePinList, deleteList, toggleItemComplete]
   );
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]} edges={['bottom']}>
-      <View style={[styles.filterContainer, { backgroundColor: theme.filterBg }]}>
-        <FlatList
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          data={tags}
-          keyExtractor={(item) => item}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={[
-                styles.chip,
-                { backgroundColor: theme.chipBg },
-                selectedTag === item && styles.chipActive,
-              ]}
-              onPress={() => setSelectedTag(item)}
-            >
-              <Text
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]} edges={['bottom']}>
+        {/* Filter Bar */}
+        <View style={[styles.filterContainer, { backgroundColor: theme.filterBg }]}>
+          <FlatList
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            data={tags}
+            keyExtractor={(item) => item}
+            renderItem={({ item }) => (
+              <TouchableOpacity
                 style={[
-                  styles.chipText,
-                  { color: theme.chipText },
-                  selectedTag === item && styles.chipTextActive,
+                  styles.chip,
+                  { backgroundColor: theme.chipBg },
+                  selectedTag === item && styles.chipActive,
                 ]}
+                onPress={() => setSelectedTag(item)}
               >
-                {item}
-              </Text>
-            </TouchableOpacity>
-          )}
-        />
-      </View>
+                <Text
+                  style={[
+                    styles.chipText,
+                    { color: theme.chipText },
+                    selectedTag === item && styles.chipTextActive,
+                  ]}
+                >
+                  {item}
+                </Text>
+              </TouchableOpacity>
+            )}
+          />
+        </View>
 
-      <FlatList
-        data={sortedLists}
-        keyExtractor={(item) => item.id}
-        renderItem={renderListItem}
-        contentContainerStyle={styles.listContent}
-        ListEmptyComponent={
+        {filteredLists.length === 0 ? (
           <View style={styles.emptyContainer}>
             <Ionicons name="clipboard-outline" size={60} color={theme.textSecondary} />
             <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
               No lists found
             </Text>
           </View>
-        }
-      />
-    </SafeAreaView>
+        ) : (
+          <ScrollView contentContainerStyle={styles.listContent}>
+            {/* PINNED SECTION */}
+            {pinnedLists.length > 0 && (
+              <View style={styles.section}>
+                <Text style={[styles.sectionTitle, { color: theme.sectionHeader }]}>
+                  📌 PINNED
+                </Text>
+                <DraggableFlatList
+                  data={pinnedLists}
+                  onDragEnd={handleDragEndPinned}
+                  keyExtractor={(item) => item.id}
+                  renderItem={renderListItem}
+                  scrollEnabled={false}
+                />
+              </View>
+            )}
+
+            {/* UNPINNED SECTION */}
+            {unpinnedLists.length > 0 && (
+              <View style={styles.section}>
+                {pinnedLists.length > 0 && (
+                  <Text style={[styles.sectionTitle, { color: theme.sectionHeader }]}>
+                    OTHER LISTS
+                  </Text>
+                )}
+                <DraggableFlatList
+                  data={unpinnedLists}
+                  onDragEnd={handleDragEndUnpinned}
+                  keyExtractor={(item) => item.id}
+                  renderItem={renderListItem}
+                  scrollEnabled={false}
+                />
+              </View>
+            )}
+          </ScrollView>
+        )}
+      </SafeAreaView>
+    </GestureHandlerRootView>
   );
 }
 
@@ -169,20 +269,20 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 14, fontWeight: '500' },
   chipTextActive: { color: '#FFFFFF' },
   listContent: { padding: '4%' },
+  section: { marginBottom: 12 },
+  sectionTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    marginTop: 4,
+    marginBottom: 8,
+    marginLeft: 4,
+  },
   card: { borderRadius: 12, padding: 16, marginBottom: 12, elevation: 2 },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flex: 1,
-    paddingRight: 8,
-  },
+  activeCard: { opacity: 0.9, elevation: 8 },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  dragHandle: { paddingRight: 8 },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, paddingRight: 8 },
   cardTitle: { fontSize: 18, fontWeight: '600', flexShrink: 1 },
   tagBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
   tagText: { fontSize: 12, color: '#208AEF', fontWeight: '500' },

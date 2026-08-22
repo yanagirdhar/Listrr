@@ -58,7 +58,7 @@ export default function TabLayout() {
           name="create"
           options={{
             title: 'Create List',
-            tabBarLabel: () => null, // 👈 Hides the text label underneath the icon
+            tabBarLabel: () => null,
             tabBarIcon: () => (
               <View
                 style={[
