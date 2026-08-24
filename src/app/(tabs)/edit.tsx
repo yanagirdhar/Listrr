@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,27 +10,50 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useLists } from '../../context/ListContext';
 import { ListType, ListItem } from '../../types/list';
 
-export default function CreateScreen() {
+export default function EditScreen() {
   const router = useRouter();
-  const { addList, isDarkMode } = useLists();
+
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const { lists, updateList, isDarkMode } = useLists();
+
+  const currentList = lists.find((list) => list.id === id);
 
   // Form state
   const [title, setTitle] = useState('');
   const [tag, setTag] = useState('');
   const [type, setType] = useState<ListType>('checklist');
-  const [items, setItems] = useState<ListItem[]>([
-    { id: Date.now().toString(), text: '', isCompleted: false },
-  ]);
+  const [items, setItems] = useState<ListItem[]>([]);
 
-  // Refs for tracking input focus and scroll position
+  // Refs for inputs and scrolling
   const inputsRef = useRef<{ [key: string]: TextInput | null }>({});
   const scrollViewRef = useRef<ScrollView | null>(null);
 
-  // Theme styles
+  // Load the selected list into the form
+  useEffect(() => {
+    if (!currentList) return;
+
+    setTitle(currentList.title);
+    setTag(currentList.tag || '');
+    setType(currentList.type);
+
+    setItems(
+      currentList.items.length > 0
+        ? currentList.items
+        : [
+            {
+              id: Date.now().toString(),
+              text: '',
+              isCompleted: false,
+            },
+          ]
+    );
+  }, [currentList]);
+
+  // Theme
   const theme = {
     bg: isDarkMode ? '#121212' : '#F2F2F7',
     cardBg: isDarkMode ? '#1E1E1E' : '#FFFFFF',
@@ -38,7 +61,7 @@ export default function CreateScreen() {
     textSecondary: isDarkMode ? '#A0A0A0' : '#8E8E93',
   };
 
-  // Add a new empty item field
+  // Add another item
   const handleAddItem = () => {
     const newId = Date.now().toString();
 
@@ -53,29 +76,35 @@ export default function CreateScreen() {
 
     setTimeout(() => {
       inputsRef.current[newId]?.focus();
-      scrollViewRef.current?.scrollToEnd({ animated: true });
+      scrollViewRef.current?.scrollToEnd({
+        animated: true,
+      });
     }, 50);
   };
 
-  // Delete an item field
-  const handleRemoveItem = (id: string) => {
+  // Remove item
+  const handleRemoveItem = (itemId: string) => {
     if (items.length <= 1) return;
 
-    setItems((prev) => prev.filter((item) => item.id !== id));
+    setItems((prev) =>
+      prev.filter((item) => item.id !== itemId)
+    );
   };
 
-  // Update text for a specific item
-  const handleItemChange = (text: string, id: string) => {
+  // Update item text
+  const handleItemChange = (text: string, itemId: string) => {
     setItems((prev) =>
       prev.map((item) =>
-        item.id === id ? { ...item, text } : item
+        item.id === itemId
+          ? { ...item, text }
+          : item
       )
     );
   };
 
-  // Save new list
+  // Save edited list
   const handleSave = () => {
-    if (!title.trim()) return;
+    if (!currentList || !title.trim()) return;
 
     const stringItems = items
       .map((item) => item.text.trim())
@@ -83,24 +112,45 @@ export default function CreateScreen() {
 
     const tagValue = tag.trim() || undefined;
 
-    addList(
+    updateList(
+      currentList.id,
       title.trim(),
       type,
       tagValue,
       stringItems
     );
 
-    router.push('/(tabs)');
+    router.back();
   };
+
+  // List doesn't exist
+  if (!currentList) {
+    return (
+      <View
+        style={[
+          styles.center,
+          { backgroundColor: theme.bg },
+        ]}
+      >
+        <Text style={{ color: theme.textSecondary }}>
+          List not found.
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={
+        Platform.OS === 'ios' ? 'padding' : 'height'
+      }
       style={[
         styles.container,
         { backgroundColor: theme.bg },
       ]}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
+      keyboardVerticalOffset={
+        Platform.OS === 'ios' ? 88 : 0
+      }
     >
       <ScrollView
         ref={scrollViewRef}
@@ -113,10 +163,10 @@ export default function CreateScreen() {
             { color: theme.textPrimary },
           ]}
         >
-          Create New List
+          Edit List
         </Text>
 
-        {/* Title input */}
+        {/* Title */}
         <View style={styles.fieldGroup}>
           <Text
             style={[
@@ -143,7 +193,7 @@ export default function CreateScreen() {
           />
         </View>
 
-        {/* Tag input */}
+        {/* Tag */}
         <View style={styles.fieldGroup}>
           <Text
             style={[
@@ -170,7 +220,7 @@ export default function CreateScreen() {
           />
         </View>
 
-        {/* List type selector */}
+        {/* Type */}
         <View style={styles.fieldGroup}>
           <Text
             style={[
@@ -183,7 +233,11 @@ export default function CreateScreen() {
 
           <View style={styles.typeSelector}>
             {(
-              ['checklist', 'bulleted', 'numbered'] as ListType[]
+              [
+                'checklist',
+                'bulleted',
+                'numbered',
+              ] as ListType[]
             ).map((t) => (
               <TouchableOpacity
                 key={t}
@@ -209,7 +263,7 @@ export default function CreateScreen() {
           </View>
         </View>
 
-        {/* List items */}
+        {/* Items */}
         <View style={styles.fieldGroup}>
           <Text
             style={[
@@ -245,7 +299,9 @@ export default function CreateScreen() {
                   },
                 ]}
                 placeholder="Item detail..."
-                placeholderTextColor={theme.textSecondary}
+                placeholderTextColor={
+                  theme.textSecondary
+                }
                 value={item.text}
                 onChangeText={(text) =>
                   handleItemChange(text, item.id)
@@ -256,7 +312,9 @@ export default function CreateScreen() {
               />
 
               <TouchableOpacity
-                onPress={() => handleRemoveItem(item.id)}
+                onPress={() =>
+                  handleRemoveItem(item.id)
+                }
                 style={styles.removeBtn}
               >
                 <Ionicons
@@ -268,7 +326,7 @@ export default function CreateScreen() {
             </View>
           ))}
 
-          {/* Add another item */}
+          {/* Add item */}
           <TouchableOpacity
             style={[
               styles.addItemBtn,
@@ -289,17 +347,18 @@ export default function CreateScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Save button */}
+        {/* Update */}
         <TouchableOpacity
           style={[
             styles.saveBtn,
-            !title.trim() && styles.saveBtnDisabled,
+            !title.trim() &&
+              styles.saveBtnDisabled,
           ]}
           onPress={handleSave}
           disabled={!title.trim()}
         >
           <Text style={styles.saveBtnText}>
-            Save List
+            Update List
           </Text>
         </TouchableOpacity>
       </ScrollView>
@@ -310,6 +369,12 @@ export default function CreateScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+
+  center: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 
   content: {
