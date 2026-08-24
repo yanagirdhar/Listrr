@@ -7,10 +7,6 @@
     "icon": "./assets/images/icon.png",
     "scheme": "listrr",
     "userInterfaceStyle": "automatic",
-    "androidNavigationBar": {
-      "visible": "edgeToEdge",
-      "barStyle": "dark-content"
-    },
     "ios": {
       "icon": "./assets/expo.icon"
     },
