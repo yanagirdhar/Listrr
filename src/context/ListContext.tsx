@@ -205,7 +205,6 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .from('lists')
         .select(`
           id,
-          user_id,
           title,
           type,
           tag,
@@ -225,6 +224,7 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
         `)
         .order('position', { ascending: true })
         .order('created_at', { ascending: false });
+
 
       if (error) {
         throw error;

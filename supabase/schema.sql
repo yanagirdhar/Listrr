@@ -21,6 +21,18 @@ CREATE TABLE IF NOT EXISTS public.lists (
     updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
+-- Upgrade existing 'lists' table with user_id column if not present
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'lists' AND column_name = 'user_id'
+  ) THEN
+    ALTER TABLE public.lists ADD COLUMN user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE DEFAULT auth.uid();
+  END IF;
+END $$;
+
+
 -- 3. Create 'list_items' Table (Cascades deletion when a list is deleted)
 CREATE TABLE IF NOT EXISTS public.list_items (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
