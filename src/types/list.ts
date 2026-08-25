@@ -11,6 +11,7 @@ export interface ListItem {
 
 export interface List {
   id: string;
+  userId?: string;
   title: string;
   type: ListType;
   tag?: string;

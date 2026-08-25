@@ -3,12 +3,14 @@
 -- Run this script in your Supabase SQL Editor (https://supabase.com/dashboard/project/_/sql)
 -- ==============================================================================
 
--- 1. Enable UUID Extension (if not already enabled)
+-- 1. Enable UUID and Cryptographic Extensions (if not already enabled)
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- 2. Create 'lists' Table
 CREATE TABLE IF NOT EXISTS public.lists (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE DEFAULT auth.uid(),
     title TEXT NOT NULL,
     type TEXT NOT NULL CHECK (type IN ('checklist', 'numbered', 'bulleted')),
     tag TEXT DEFAULT 'General',
@@ -30,6 +32,7 @@ CREATE TABLE IF NOT EXISTS public.list_items (
 );
 
 -- 4. Create Indexes for High-Performance Queries & Realtime Filtering
+CREATE INDEX IF NOT EXISTS idx_lists_user_id ON public.lists (user_id);
 CREATE INDEX IF NOT EXISTS idx_lists_is_archived ON public.lists (is_archived);
 CREATE INDEX IF NOT EXISTS idx_lists_is_pinned ON public.lists (is_pinned);
 CREATE INDEX IF NOT EXISTS idx_lists_position ON public.lists (position);
@@ -55,32 +58,96 @@ EXECUTE FUNCTION public.handle_updated_at();
 ALTER TABLE public.lists ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.list_items ENABLE ROW LEVEL SECURITY;
 
--- 7. RLS Policies (Allow read/write operations for public/anonymous and authenticated users)
--- Lists policies
+-- 7. Row Level Security (RLS) Policies
+-- Drop deprecated legacy policies if present
 DROP POLICY IF EXISTS "Allow select on lists" ON public.lists;
-CREATE POLICY "Allow select on lists" ON public.lists FOR SELECT USING (true);
-
 DROP POLICY IF EXISTS "Allow insert on lists" ON public.lists;
-CREATE POLICY "Allow insert on lists" ON public.lists FOR INSERT WITH CHECK (true);
-
 DROP POLICY IF EXISTS "Allow update on lists" ON public.lists;
-CREATE POLICY "Allow update on lists" ON public.lists FOR UPDATE USING (true);
-
 DROP POLICY IF EXISTS "Allow delete on lists" ON public.lists;
-CREATE POLICY "Allow delete on lists" ON public.lists FOR DELETE USING (true);
-
--- List items policies
 DROP POLICY IF EXISTS "Allow select on list_items" ON public.list_items;
-CREATE POLICY "Allow select on list_items" ON public.list_items FOR SELECT USING (true);
-
 DROP POLICY IF EXISTS "Allow insert on list_items" ON public.list_items;
-CREATE POLICY "Allow insert on list_items" ON public.list_items FOR INSERT WITH CHECK (true);
-
 DROP POLICY IF EXISTS "Allow update on list_items" ON public.list_items;
-CREATE POLICY "Allow update on list_items" ON public.list_items FOR UPDATE USING (true);
-
 DROP POLICY IF EXISTS "Allow delete on list_items" ON public.list_items;
-CREATE POLICY "Allow delete on list_items" ON public.list_items FOR DELETE USING (true);
+
+-- Drop new policies to ensure clean idempotent migrations
+DROP POLICY IF EXISTS "Allow select on lists" ON public.lists;
+DROP POLICY IF EXISTS "Allow insert on lists" ON public.lists;
+DROP POLICY IF EXISTS "Allow update on lists" ON public.lists;
+DROP POLICY IF EXISTS "Allow delete on lists" ON public.lists;
+DROP POLICY IF EXISTS "Allow anon and auth select on lists" ON public.lists;
+DROP POLICY IF EXISTS "Allow anon and auth insert on lists" ON public.lists;
+DROP POLICY IF EXISTS "Allow anon and auth update on lists" ON public.lists;
+DROP POLICY IF EXISTS "Allow anon and auth delete on lists" ON public.lists;
+DROP POLICY IF EXISTS "Allow anon and auth select on list_items" ON public.list_items;
+DROP POLICY IF EXISTS "Allow anon and auth insert on list_items" ON public.list_items;
+DROP POLICY IF EXISTS "Allow anon and auth update on list_items" ON public.list_items;
+DROP POLICY IF EXISTS "Allow anon and auth delete on list_items" ON public.list_items;
+
+-- Lists policies (Supports both guest/shared mode and authenticated user-isolated mode)
+CREATE POLICY "Allow anon and auth select on lists" ON public.lists
+    FOR SELECT TO anon, authenticated
+    USING (user_id IS NULL OR auth.uid() = user_id);
+
+CREATE POLICY "Allow anon and auth insert on lists" ON public.lists
+    FOR INSERT TO anon, authenticated
+    WITH CHECK (user_id IS NULL OR auth.uid() = user_id);
+
+CREATE POLICY "Allow anon and auth update on lists" ON public.lists
+    FOR UPDATE TO anon, authenticated
+    USING (user_id IS NULL OR auth.uid() = user_id)
+    WITH CHECK (user_id IS NULL OR auth.uid() = user_id);
+
+CREATE POLICY "Allow anon and auth delete on lists" ON public.lists
+    FOR DELETE TO anon, authenticated
+    USING (user_id IS NULL OR auth.uid() = user_id);
+
+-- List items policies (Scoped through list ownership)
+CREATE POLICY "Allow anon and auth select on list_items" ON public.list_items
+    FOR SELECT TO anon, authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.lists
+            WHERE lists.id = list_items.list_id
+              AND (lists.user_id IS NULL OR lists.user_id = auth.uid())
+        )
+    );
+
+CREATE POLICY "Allow anon and auth insert on list_items" ON public.list_items
+    FOR INSERT TO anon, authenticated
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM public.lists
+            WHERE lists.id = list_items.list_id
+              AND (lists.user_id IS NULL OR lists.user_id = auth.uid())
+        )
+    );
+
+CREATE POLICY "Allow anon and auth update on list_items" ON public.list_items
+    FOR UPDATE TO anon, authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.lists
+            WHERE lists.id = list_items.list_id
+              AND (lists.user_id IS NULL OR lists.user_id = auth.uid())
+        )
+    )
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM public.lists
+            WHERE lists.id = list_items.list_id
+              AND (lists.user_id IS NULL OR lists.user_id = auth.uid())
+        )
+    );
+
+CREATE POLICY "Allow anon and auth delete on list_items" ON public.list_items
+    FOR DELETE TO anon, authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.lists
+            WHERE lists.id = list_items.list_id
+              AND (lists.user_id IS NULL OR lists.user_id = auth.uid())
+        )
+    );
 
 -- 8. Enable Realtime Publications for Postgres Changes
 DO $$
@@ -142,3 +209,4 @@ BEGIN
         (features_list_id, 'Full dark mode & light mode dynamic themes', false, 3);
     END IF;
 END $$;
+

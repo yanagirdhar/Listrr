@@ -48,6 +48,60 @@ export interface ListContextType {
 // React context initialization
 const ListContext = createContext<ListContextType | undefined>(undefined);
 
+// Initial starter seed lists for offline and unconfigured mode
+const DEFAULT_STARTER_LISTS: List[] = [
+  {
+    id: generateUUID(),
+    title: 'Weekend Grocery Run',
+    type: 'checklist',
+    tag: 'Shopping',
+    isPinned: true,
+    isArchived: false,
+    position: 0,
+    createdAt: new Date().toISOString(),
+    items: [
+      { id: generateUUID(), text: 'Organic Almond Milk', isCompleted: true, position: 0 },
+      { id: generateUUID(), text: 'Fresh Avocados (x4)', isCompleted: false, position: 1 },
+      { id: generateUUID(), text: 'Artisan Sourdough Loaf', isCompleted: false, position: 2 },
+      { id: generateUUID(), text: 'Greek Yogurt (Plain)', isCompleted: true, position: 3 },
+      { id: generateUUID(), text: 'Dark Roast Coffee Beans', isCompleted: false, position: 4 },
+    ],
+  },
+  {
+    id: generateUUID(),
+    title: 'Production Launch Sequence',
+    type: 'numbered',
+    tag: 'Work',
+    isPinned: true,
+    isArchived: false,
+    position: 1,
+    createdAt: new Date().toISOString(),
+    items: [
+      { id: generateUUID(), text: 'Run production TypeScript verification & bundle check', isCompleted: true, position: 0 },
+      { id: generateUUID(), text: 'Deploy Supabase migrations & test realtime sync', isCompleted: true, position: 1 },
+      { id: generateUUID(), text: 'Configure EAS build profiles in eas.json', isCompleted: false, position: 2 },
+      { id: generateUUID(), text: 'Submit iOS build to App Store Connect & TestFlight', isCompleted: false, position: 3 },
+      { id: generateUUID(), text: 'Publish Android AAB to Google Play Console', isCompleted: false, position: 4 },
+    ],
+  },
+  {
+    id: generateUUID(),
+    title: 'Listrr Core Features',
+    type: 'bulleted',
+    tag: 'Product',
+    isPinned: false,
+    isArchived: false,
+    position: 2,
+    createdAt: new Date().toISOString(),
+    items: [
+      { id: generateUUID(), text: 'Instant Realtime Supabase synchronization', isCompleted: false, position: 0 },
+      { id: generateUUID(), text: 'Drag and drop reordering with smooth animations', isCompleted: false, position: 1 },
+      { id: generateUUID(), text: 'Offline-resilient optimistic state updates', isCompleted: false, position: 2 },
+      { id: generateUUID(), text: 'Full dark mode & light mode dynamic themes', isCompleted: false, position: 3 },
+    ],
+  },
+];
+
 // Helper to transform raw Supabase join rows into frontend List objects
 function transformSupabaseRows(data: any[]): List[] {
   return data.map((row) => {
@@ -62,6 +116,7 @@ function transformSupabaseRows(data: any[]): List[] {
 
     return {
       id: String(row.id),
+      userId: row.user_id ? String(row.user_id) : undefined,
       title: row.title || '',
       type: (row.type as ListType) || 'checklist',
       tag: row.tag || 'General',
@@ -129,6 +184,11 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const cached = await loadFromLocalCache();
       if (cached && cached.length > 0) {
         setLists(cached);
+        listsRef.current = cached;
+      } else {
+        setLists(DEFAULT_STARTER_LISTS);
+        listsRef.current = DEFAULT_STARTER_LISTS;
+        await saveToLocalCache(DEFAULT_STARTER_LISTS);
       }
       setIsLoading(false);
       setSyncStatus('unconfigured');
@@ -145,6 +205,7 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .from('lists')
         .select(`
           id,
+          user_id,
           title,
           type,
           tag,
@@ -172,6 +233,7 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (data) {
         const parsedLists = transformSupabaseRows(data);
         setLists(parsedLists);
+        listsRef.current = parsedLists;
         await saveToLocalCache(parsedLists);
         setSyncStatus('connected');
         setErrorMessage(null);
@@ -184,6 +246,7 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const cached = await loadFromLocalCache();
       if (cached && cached.length > 0) {
         setLists(cached);
+        listsRef.current = cached;
       }
     } finally {
       setIsLoading(false);
@@ -268,17 +331,18 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
       items: optimisticItems,
     };
 
-    // Optimistic UI update
-    setLists((prev) => [optimisticList, ...prev]);
+    const nextLists = [optimisticList, ...listsRef.current];
+    setLists(nextLists);
+    listsRef.current = nextLists;
+    await saveToLocalCache(nextLists);
 
     if (!isSupabaseConfigured) {
-      saveToLocalCache([optimisticList, ...listsRef.current]);
       return;
     }
 
     try {
       // 1. Insert list row with explicit UUID
-      const { data: listData, error: listError } = await supabase
+      const { error: listError } = await supabase
         .from('lists')
         .insert({
           id: listId,
@@ -288,9 +352,7 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
           is_pinned: false,
           is_archived: false,
           position: 0,
-        })
-        .select()
-        .single();
+        });
 
       if (listError) throw listError;
 
@@ -329,8 +391,9 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
   ) => {
     const tagValue = tag?.trim() || 'General';
 
+    const targetList = listsRef.current.find((l) => l.id === id);
     const updatedItems: ListItem[] = itemTexts.map((text, idx) => {
-      const existing = lists.find((l) => l.id === id)?.items[idx];
+      const existing = targetList?.items[idx];
       return {
         id: existing && isValidUUID(existing.id) ? existing.id : generateUUID(),
         listId: id,
@@ -340,22 +403,22 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
     });
 
-    // Optimistic update
-    setLists((prev) =>
-      prev.map((list) => {
-        if (list.id !== id) return list;
-        return {
-          ...list,
-          title: title.trim(),
-          type,
-          tag: tagValue,
-          items: updatedItems,
-        };
-      })
-    );
+    const nextLists = listsRef.current.map((list) => {
+      if (list.id !== id) return list;
+      return {
+        ...list,
+        title: title.trim(),
+        type,
+        tag: tagValue,
+        items: updatedItems,
+      };
+    });
+
+    setLists(nextLists);
+    listsRef.current = nextLists;
+    await saveToLocalCache(nextLists);
 
     if (!isSupabaseConfigured || !isValidUUID(id)) {
-      saveToLocalCache(listsRef.current);
       return;
     }
 
@@ -406,11 +469,12 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Remove a list permanently from database
   const deleteList = async (id: string) => {
-    // Optimistic delete
-    setLists((prev) => prev.filter((list) => list.id !== id));
+    const nextLists = listsRef.current.filter((list) => list.id !== id);
+    setLists(nextLists);
+    listsRef.current = nextLists;
+    await saveToLocalCache(nextLists);
 
     if (!isSupabaseConfigured || !isValidUUID(id)) {
-      saveToLocalCache(listsRef.current.filter((l) => l.id !== id));
       return;
     }
 
@@ -426,23 +490,27 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Toggle pin status for a specific list
   const togglePinList = async (id: string) => {
-    const target = lists.find((l) => l.id === id);
-    const newPinned = target ? !target.isPinned : true;
+    let targetNewPinned = true;
+    const nextLists = listsRef.current.map((list) => {
+      if (list.id === id) {
+        targetNewPinned = !list.isPinned;
+        return { ...list, isPinned: targetNewPinned };
+      }
+      return list;
+    });
 
-    // Optimistic update
-    setLists((prev) =>
-      prev.map((list) => (list.id === id ? { ...list, isPinned: newPinned } : list))
-    );
+    setLists(nextLists);
+    listsRef.current = nextLists;
+    await saveToLocalCache(nextLists);
 
     if (!isSupabaseConfigured || !isValidUUID(id)) {
-      saveToLocalCache(listsRef.current);
       return;
     }
 
     try {
       const { error } = await supabase
         .from('lists')
-        .update({ is_pinned: newPinned })
+        .update({ is_pinned: targetNewPinned })
         .eq('id', id);
       if (error) throw error;
     } catch (err: any) {
@@ -453,23 +521,27 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Toggle archive status for a specific list
   const toggleArchiveList = async (id: string) => {
-    const target = lists.find((l) => l.id === id);
-    const newArchived = target ? !target.isArchived : true;
+    let targetNewArchived = true;
+    const nextLists = listsRef.current.map((list) => {
+      if (list.id === id) {
+        targetNewArchived = !list.isArchived;
+        return { ...list, isArchived: targetNewArchived };
+      }
+      return list;
+    });
 
-    // Optimistic update
-    setLists((prev) =>
-      prev.map((list) => (list.id === id ? { ...list, isArchived: newArchived } : list))
-    );
+    setLists(nextLists);
+    listsRef.current = nextLists;
+    await saveToLocalCache(nextLists);
 
     if (!isSupabaseConfigured || !isValidUUID(id)) {
-      saveToLocalCache(listsRef.current);
       return;
     }
 
     try {
       const { error } = await supabase
         .from('lists')
-        .update({ is_archived: newArchived })
+        .update({ is_archived: targetNewArchived })
         .eq('id', id);
       if (error) throw error;
     } catch (err: any) {
@@ -480,34 +552,37 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Toggle checklist item completion status in database
   const toggleItemComplete = async (listId: string, itemId: string) => {
-    let newCompleted = false;
+    let targetNewCompleted: boolean | null = null;
 
-    // Optimistic update
-    setLists((prev) =>
-      prev.map((list) => {
-        if (list.id !== listId) return list;
-        return {
-          ...list,
-          items: list.items.map((item) => {
-            if (item.id === itemId) {
-              newCompleted = !item.isCompleted;
-              return { ...item, isCompleted: newCompleted };
-            }
-            return item;
-          }),
-        };
-      })
-    );
+    const nextLists = listsRef.current.map((list) => {
+      if (list.id !== listId) return list;
+      return {
+        ...list,
+        items: list.items.map((item) => {
+          if (item.id === itemId) {
+            const nextCompleted = !item.isCompleted;
+            targetNewCompleted = nextCompleted;
+            return { ...item, isCompleted: nextCompleted };
+          }
+          return item;
+        }),
+      };
+    });
+
+    if (targetNewCompleted === null) return;
+
+    setLists(nextLists);
+    listsRef.current = nextLists;
+    await saveToLocalCache(nextLists);
 
     if (!isSupabaseConfigured || !isValidUUID(itemId)) {
-      saveToLocalCache(listsRef.current);
       return;
     }
 
     try {
       const { error } = await supabase
         .from('list_items')
-        .update({ is_completed: newCompleted })
+        .update({ is_completed: targetNewCompleted })
         .eq('id', itemId);
       if (error) throw error;
     } catch (err: any) {
@@ -522,36 +597,42 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!trimmed) return;
 
     const newItemId = generateUUID();
+    let nextPosition = 0;
 
-    // Optimistic update
-    setLists((prev) =>
-      prev.map((list) => {
-        if (list.id !== listId) return list;
-        return {
-          ...list,
-          items: [
-            ...list.items,
-            { id: newItemId, listId, text: trimmed, isCompleted: false, position: list.items.length },
-          ],
-        };
-      })
-    );
+    const nextLists = listsRef.current.map((list) => {
+      if (list.id !== listId) return list;
+      nextPosition = list.items.length;
+      return {
+        ...list,
+        items: [
+          ...list.items,
+          {
+            id: newItemId,
+            listId,
+            text: trimmed,
+            isCompleted: false,
+            position: nextPosition,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      };
+    });
+
+    setLists(nextLists);
+    listsRef.current = nextLists;
+    await saveToLocalCache(nextLists);
 
     if (!isSupabaseConfigured || !isValidUUID(listId)) {
-      saveToLocalCache(listsRef.current);
       return;
     }
 
     try {
-      const target = lists.find((l) => l.id === listId);
-      const position = target ? target.items.length : 0;
-
       const { error } = await supabase.from('list_items').insert({
         id: newItemId,
         list_id: listId,
         text: trimmed,
         is_completed: false,
-        position,
+        position: nextPosition,
       });
 
       if (error) throw error;
@@ -570,9 +651,10 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }));
 
     setLists(updated);
+    listsRef.current = updated;
+    await saveToLocalCache(updated);
 
     if (!isSupabaseConfigured) {
-      saveToLocalCache(updated);
       return;
     }
 
@@ -613,6 +695,7 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
     </ListContext.Provider>
   );
 };
+
 
 export const useLists = () => {
   const context = useContext(ListContext);
