@@ -204,15 +204,7 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const { data, error } = await supabase
         .from('lists')
         .select(`
-          id,
-          title,
-          type,
-          tag,
-          is_pinned,
-          is_archived,
-          position,
-          created_at,
-          updated_at,
+          *,
           list_items (
             id,
             list_id,
@@ -224,6 +216,7 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
         `)
         .order('position', { ascending: true })
         .order('created_at', { ascending: false });
+
 
 
       if (error) {

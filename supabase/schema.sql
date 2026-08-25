@@ -71,7 +71,7 @@ ALTER TABLE public.lists ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.list_items ENABLE ROW LEVEL SECURITY;
 
 -- 7. Row Level Security (RLS) Policies
--- Drop deprecated legacy policies if present
+-- Drop previous policies to ensure clean idempotent migrations
 DROP POLICY IF EXISTS "Allow select on lists" ON public.lists;
 DROP POLICY IF EXISTS "Allow insert on lists" ON public.lists;
 DROP POLICY IF EXISTS "Allow update on lists" ON public.lists;
@@ -80,12 +80,6 @@ DROP POLICY IF EXISTS "Allow select on list_items" ON public.list_items;
 DROP POLICY IF EXISTS "Allow insert on list_items" ON public.list_items;
 DROP POLICY IF EXISTS "Allow update on list_items" ON public.list_items;
 DROP POLICY IF EXISTS "Allow delete on list_items" ON public.list_items;
-
--- Drop new policies to ensure clean idempotent migrations
-DROP POLICY IF EXISTS "Allow select on lists" ON public.lists;
-DROP POLICY IF EXISTS "Allow insert on lists" ON public.lists;
-DROP POLICY IF EXISTS "Allow update on lists" ON public.lists;
-DROP POLICY IF EXISTS "Allow delete on lists" ON public.lists;
 DROP POLICY IF EXISTS "Allow anon and auth select on lists" ON public.lists;
 DROP POLICY IF EXISTS "Allow anon and auth insert on lists" ON public.lists;
 DROP POLICY IF EXISTS "Allow anon and auth update on lists" ON public.lists;
@@ -94,72 +88,153 @@ DROP POLICY IF EXISTS "Allow anon and auth select on list_items" ON public.list_
 DROP POLICY IF EXISTS "Allow anon and auth insert on list_items" ON public.list_items;
 DROP POLICY IF EXISTS "Allow anon and auth update on list_items" ON public.list_items;
 DROP POLICY IF EXISTS "Allow anon and auth delete on list_items" ON public.list_items;
+DROP POLICY IF EXISTS "anon_select_lists" ON public.lists;
+DROP POLICY IF EXISTS "anon_insert_lists" ON public.lists;
+DROP POLICY IF EXISTS "anon_update_lists" ON public.lists;
+DROP POLICY IF EXISTS "anon_delete_lists" ON public.lists;
+DROP POLICY IF EXISTS "anon_select_list_items" ON public.list_items;
+DROP POLICY IF EXISTS "anon_insert_list_items" ON public.list_items;
+DROP POLICY IF EXISTS "anon_update_list_items" ON public.list_items;
+DROP POLICY IF EXISTS "anon_delete_list_items" ON public.list_items;
+DROP POLICY IF EXISTS "auth_select_lists" ON public.lists;
+DROP POLICY IF EXISTS "auth_insert_lists" ON public.lists;
+DROP POLICY IF EXISTS "auth_update_lists" ON public.lists;
+DROP POLICY IF EXISTS "auth_delete_lists" ON public.lists;
+DROP POLICY IF EXISTS "auth_select_list_items" ON public.list_items;
+DROP POLICY IF EXISTS "auth_insert_list_items" ON public.list_items;
+DROP POLICY IF EXISTS "auth_update_list_items" ON public.list_items;
+DROP POLICY IF EXISTS "auth_delete_list_items" ON public.list_items;
 
--- Lists policies (Supports both guest/shared mode and authenticated user-isolated mode)
-CREATE POLICY "Allow anon and auth select on lists" ON public.lists
-    FOR SELECT TO anon, authenticated
-    USING (user_id IS NULL OR auth.uid() = user_id);
+-- 7A. Anonymous / Guest Policies (user_id IS NULL)
+CREATE POLICY "anon_select_lists" ON public.lists
+    FOR SELECT TO anon
+    USING (user_id IS NULL);
 
-CREATE POLICY "Allow anon and auth insert on lists" ON public.lists
-    FOR INSERT TO anon, authenticated
-    WITH CHECK (user_id IS NULL OR auth.uid() = user_id);
+CREATE POLICY "anon_insert_lists" ON public.lists
+    FOR INSERT TO anon
+    WITH CHECK (user_id IS NULL);
 
-CREATE POLICY "Allow anon and auth update on lists" ON public.lists
-    FOR UPDATE TO anon, authenticated
-    USING (user_id IS NULL OR auth.uid() = user_id)
-    WITH CHECK (user_id IS NULL OR auth.uid() = user_id);
+CREATE POLICY "anon_update_lists" ON public.lists
+    FOR UPDATE TO anon
+    USING (user_id IS NULL)
+    WITH CHECK (user_id IS NULL);
 
-CREATE POLICY "Allow anon and auth delete on lists" ON public.lists
-    FOR DELETE TO anon, authenticated
-    USING (user_id IS NULL OR auth.uid() = user_id);
+CREATE POLICY "anon_delete_lists" ON public.lists
+    FOR DELETE TO anon
+    USING (user_id IS NULL);
 
--- List items policies (Scoped through list ownership)
-CREATE POLICY "Allow anon and auth select on list_items" ON public.list_items
-    FOR SELECT TO anon, authenticated
+CREATE POLICY "anon_select_list_items" ON public.list_items
+    FOR SELECT TO anon
     USING (
         EXISTS (
             SELECT 1 FROM public.lists
             WHERE lists.id = list_items.list_id
-              AND (lists.user_id IS NULL OR lists.user_id = auth.uid())
+              AND lists.user_id IS NULL
         )
     );
 
-CREATE POLICY "Allow anon and auth insert on list_items" ON public.list_items
-    FOR INSERT TO anon, authenticated
+CREATE POLICY "anon_insert_list_items" ON public.list_items
+    FOR INSERT TO anon
     WITH CHECK (
         EXISTS (
             SELECT 1 FROM public.lists
             WHERE lists.id = list_items.list_id
-              AND (lists.user_id IS NULL OR lists.user_id = auth.uid())
+              AND lists.user_id IS NULL
         )
     );
 
-CREATE POLICY "Allow anon and auth update on list_items" ON public.list_items
-    FOR UPDATE TO anon, authenticated
+CREATE POLICY "anon_update_list_items" ON public.list_items
+    FOR UPDATE TO anon
     USING (
         EXISTS (
             SELECT 1 FROM public.lists
             WHERE lists.id = list_items.list_id
-              AND (lists.user_id IS NULL OR lists.user_id = auth.uid())
+              AND lists.user_id IS NULL
         )
     )
     WITH CHECK (
         EXISTS (
             SELECT 1 FROM public.lists
             WHERE lists.id = list_items.list_id
-              AND (lists.user_id IS NULL OR lists.user_id = auth.uid())
+              AND lists.user_id IS NULL
         )
     );
 
-CREATE POLICY "Allow anon and auth delete on list_items" ON public.list_items
-    FOR DELETE TO anon, authenticated
+CREATE POLICY "anon_delete_list_items" ON public.list_items
+    FOR DELETE TO anon
     USING (
         EXISTS (
             SELECT 1 FROM public.lists
             WHERE lists.id = list_items.list_id
-              AND (lists.user_id IS NULL OR lists.user_id = auth.uid())
+              AND lists.user_id IS NULL
         )
     );
+
+-- 7B. Authenticated User Policies (Scoped to auth.uid())
+CREATE POLICY "auth_select_lists" ON public.lists
+    FOR SELECT TO authenticated
+    USING (user_id = auth.uid() OR user_id IS NULL);
+
+CREATE POLICY "auth_insert_lists" ON public.lists
+    FOR INSERT TO authenticated
+    WITH CHECK (user_id = auth.uid());
+
+CREATE POLICY "auth_update_lists" ON public.lists
+    FOR UPDATE TO authenticated
+    USING (user_id = auth.uid())
+    WITH CHECK (user_id = auth.uid());
+
+CREATE POLICY "auth_delete_lists" ON public.lists
+    FOR DELETE TO authenticated
+    USING (user_id = auth.uid());
+
+CREATE POLICY "auth_select_list_items" ON public.list_items
+    FOR SELECT TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.lists
+            WHERE lists.id = list_items.list_id
+              AND (lists.user_id = auth.uid() OR lists.user_id IS NULL)
+        )
+    );
+
+CREATE POLICY "auth_insert_list_items" ON public.list_items
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM public.lists
+            WHERE lists.id = list_items.list_id
+              AND lists.user_id = auth.uid()
+        )
+    );
+
+CREATE POLICY "auth_update_list_items" ON public.list_items
+    FOR UPDATE TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.lists
+            WHERE lists.id = list_items.list_id
+              AND lists.user_id = auth.uid()
+        )
+    )
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM public.lists
+            WHERE lists.id = list_items.list_id
+              AND lists.user_id = auth.uid()
+        )
+    );
+
+CREATE POLICY "auth_delete_list_items" ON public.list_items
+    FOR DELETE TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.lists
+            WHERE lists.id = list_items.list_id
+              AND lists.user_id = auth.uid()
+        )
+    );
+
 
 -- 8. Enable Realtime Publications for Postgres Changes
 DO $$

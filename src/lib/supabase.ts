@@ -8,41 +8,46 @@ const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
 
 function checkIsSupabaseConfigured(url: string, key: string): boolean {
   if (!url || !key) return false;
-  const lowerUrl = url.toLowerCase().trim();
-  const lowerKey = key.toLowerCase().trim();
+  const trimmedUrl = url.trim();
+  const trimmedKey = key.trim();
 
   // Validate URL protocol
-  if (!lowerUrl.startsWith('http://') && !lowerUrl.startsWith('https://')) {
+  if (!trimmedUrl.startsWith('http://') && !trimmedUrl.startsWith('https://')) {
     return false;
   }
 
-  // Reject template placeholders from .env.example / starter boilerplates
-  const urlPlaceholders = [
-    'your-project',
-    'your-project-id',
-    'your-project-url',
-    'placeholder',
-    'example',
-    '<project-ref>',
+  // Reject known template/placeholder URLs from .env.example / starter boilerplate
+  const knownTemplateHosts = [
+    'https://your-project-id.supabase.co',
+    'https://your-project.supabase.co',
+    'https://your-project-url',
+    'https://placeholder.supabase.co',
+    'http://placeholder.supabase.co',
   ];
-  if (urlPlaceholders.some((ph) => lowerUrl.includes(ph))) {
+  if (knownTemplateHosts.some((host) => trimmedUrl.toLowerCase().startsWith(host.toLowerCase()))) {
+    return false;
+  }
+  if (trimmedUrl.includes('your-project-id') || trimmedUrl.includes('your-project-url') || trimmedUrl.includes('<project-ref>')) {
     return false;
   }
 
-  const keyPlaceholders = [
-    'your-anon',
+  // Reject known template anon keys
+  const knownTemplateKeys = [
+    'your-anon-public-key-here',
     'your-anon-key',
-    'your-anon-public-key',
-    'placeholder',
-    'example',
+    'placeholder-key',
     '<anon-key>',
   ];
-  if (keyPlaceholders.some((ph) => lowerKey.includes(ph))) {
+  if (knownTemplateKeys.some((tplKey) => trimmedKey.toLowerCase() === tplKey.toLowerCase())) {
+    return false;
+  }
+  if (trimmedKey.includes('your-anon-public-key') || trimmedKey.includes('<anon-key>')) {
     return false;
   }
 
-  // Real Supabase anon keys are JWTs (typically > 80 chars)
-  if (lowerKey.length < 20) {
+  // Supabase anon keys are JWTs composed of 3 base64 segments separated by dots
+  const segments = trimmedKey.split('.');
+  if (segments.length !== 3 || segments.some((s) => s.length === 0)) {
     return false;
   }
 
@@ -50,6 +55,7 @@ function checkIsSupabaseConfigured(url: string, key: string): boolean {
 }
 
 export const isSupabaseConfigured = checkIsSupabaseConfigured(supabaseUrl, supabaseAnonKey);
+
 
 
 // Create Supabase client with custom storage engine for mobile/web cross-platform persistence
