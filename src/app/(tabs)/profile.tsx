@@ -7,6 +7,7 @@ import {
   Switch,
   TouchableOpacity,
   useWindowDimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -16,7 +17,15 @@ export default function ProfileScreen() {
   const router = useRouter();
   
   // Get lists state and dark mode handlers from context
-  const { lists, isDarkMode, toggleDarkMode } = useLists();
+  const {
+    lists,
+    isDarkMode,
+    isConfigured,
+    syncStatus,
+    toggleDarkMode,
+    refreshLists,
+    isLoading,
+  } = useLists();
   
   // Get responsive screen dimensions
   const { width } = useWindowDimensions();
@@ -62,10 +71,80 @@ export default function ProfileScreen() {
         >
           <Ionicons name="person" size={avatarSize * 0.5} color="#208AEF" />
         </View>
-        <Text style={[styles.userName, dynamicStyles.textPrimary]}>Listrr User</Text>
+        <Text style={[styles.userName, dynamicStyles.textPrimary]}>Listrr Workspace</Text>
         <Text style={[styles.userEmail, dynamicStyles.textSecondary]}>
-          user@listrr.app
+          realtime@listrr.app
         </Text>
+      </View>
+
+      {/* Database & Realtime Status */}
+      <Text style={[styles.sectionTitle, dynamicStyles.textSecondary]}>
+        Backend & Database
+      </Text>
+      <View style={[styles.card, dynamicStyles.card]}>
+        <View style={styles.infoRow}>
+          <View style={styles.settingLabelGroup}>
+            <Ionicons name="server-outline" size={20} color="#208AEF" />
+            <Text style={[styles.infoLabel, dynamicStyles.textPrimary]}>Database Provider</Text>
+          </View>
+          <Text style={[styles.infoValue, { color: '#208AEF', fontWeight: '600' }]}>Supabase</Text>
+        </View>
+        <View style={[styles.divider, dynamicStyles.divider]} />
+        <View style={styles.infoRow}>
+          <View style={styles.settingLabelGroup}>
+            <Ionicons name="pulse-outline" size={20} color={syncStatus === 'connected' ? '#34C759' : '#FF9500'} />
+            <Text style={[styles.infoLabel, dynamicStyles.textPrimary]}>Realtime Sync</Text>
+          </View>
+          <View style={styles.statusPill}>
+            <View
+              style={[
+                styles.statusDot,
+                {
+                  backgroundColor:
+                    syncStatus === 'connected'
+                      ? '#34C759'
+                      : syncStatus === 'syncing'
+                      ? '#FF9500'
+                      : syncStatus === 'error'
+                      ? '#FF3B30'
+                      : '#8E8E93',
+                },
+              ]}
+            />
+            <Text
+              style={[
+                styles.infoValue,
+                {
+                  color:
+                    syncStatus === 'connected'
+                      ? '#34C759'
+                      : syncStatus === 'syncing'
+                      ? '#FF9500'
+                      : '#8E8E93',
+                  fontWeight: '600',
+                  textTransform: 'capitalize',
+                },
+              ]}
+            >
+              {syncStatus}
+            </Text>
+          </View>
+        </View>
+        <View style={[styles.divider, dynamicStyles.divider]} />
+        <TouchableOpacity
+          style={styles.syncBtnRow}
+          onPress={() => refreshLists()}
+          disabled={isLoading}
+        >
+          <Text style={[styles.syncBtnText, { color: '#208AEF' }]}>
+            {isLoading ? 'Syncing...' : 'Force Sync with Supabase'}
+          </Text>
+          {isLoading ? (
+            <ActivityIndicator size="small" color="#208AEF" />
+          ) : (
+            <Ionicons name="refresh" size={18} color="#208AEF" />
+          )}
+        </TouchableOpacity>
       </View>
 
       {/* App preferences settings (Dark mode toggle) */}
@@ -158,7 +237,16 @@ export default function ProfileScreen() {
             Framework
           </Text>
           <Text style={[styles.infoValue, dynamicStyles.textSecondary]}>
-            Expo Router
+            Expo Router (SDK 57)
+          </Text>
+        </View>
+        <View style={[styles.divider, dynamicStyles.divider]} />
+        <View style={styles.infoRow}>
+          <Text style={[styles.infoLabel, dynamicStyles.textPrimary]}>
+            Database
+          </Text>
+          <Text style={[styles.infoValue, dynamicStyles.textSecondary]}>
+            Supabase PostgreSQL
           </Text>
         </View>
       </View>
@@ -196,8 +284,12 @@ const styles = StyleSheet.create({
   statCard: { flex: 1, padding: 12, borderRadius: 12, alignItems: 'center' },
   statNumber: { fontSize: 22, fontWeight: 'bold', color: '#208AEF' },
   statLabel: { fontSize: 12, marginTop: 4, textAlign: 'center' },
-  infoRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
+  infoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 },
   infoLabel: { fontSize: 15 },
   infoValue: { fontSize: 15 },
+  statusPill: { flexDirection: 'row', alignItems: 'center' },
+  statusDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 },
+  syncBtnRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 6 },
+  syncBtnText: { fontSize: 15, fontWeight: '600' },
   divider: { height: 1, marginVertical: 10 },
 });

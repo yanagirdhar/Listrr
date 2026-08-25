@@ -4,12 +4,14 @@ import React, { useState, useCallback, useMemo } from 'react';
 import {
   FlatList,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
+  ActivityIndicator,
 } from 'react-native';
 import DraggableFlatList, {
   RenderItemParams,
@@ -117,11 +119,21 @@ const ListCard = React.memo(({
 
 export default function ListsScreen() {
   const router = useRouter();
-  const { lists, isDarkMode, togglePinList, toggleItemComplete, reorderLists } = useLists();
+  const {
+    lists,
+    isLoading,
+    syncStatus,
+    isDarkMode,
+    togglePinList,
+    toggleItemComplete,
+    reorderLists,
+    refreshLists,
+  } = useLists();
   
   // Tag and search filter state
   const [selectedTag, setSelectedTag] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
 
   // Get active (non-archived) lists
   const unarchivedLists = useMemo(() => lists.filter((l) => !l.isArchived), [lists]);
@@ -150,6 +162,13 @@ export default function ListsScreen() {
   // Separate pinned and unpinned lists
   const pinnedLists = useMemo(() => filteredLists.filter((l) => l.isPinned), [filteredLists]);
   const unpinnedLists = useMemo(() => filteredLists.filter((l) => !l.isPinned), [filteredLists]);
+
+  // Handle pull to refresh
+  const onRefresh = async () => {
+    setIsRefreshing(true);
+    await refreshLists();
+    setIsRefreshing(false);
+  };
 
   // Update order after drag-and-drop for pinned lists
   const handleDragEndPinned = useCallback(
@@ -202,6 +221,36 @@ export default function ListsScreen() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]} edges={['bottom']}>
+        {/* Realtime Connection Status Bar */}
+        <View style={styles.statusBarContainer}>
+          <View style={styles.statusBadge}>
+            <View
+              style={[
+                styles.statusDot,
+                {
+                  backgroundColor:
+                    syncStatus === 'connected'
+                      ? '#34C759'
+                      : syncStatus === 'syncing'
+                      ? '#FF9500'
+                      : syncStatus === 'error'
+                      ? '#FF3B30'
+                      : '#8E8E93',
+                },
+              ]}
+            />
+            <Text style={[styles.statusText, { color: theme.textSecondary }]}>
+              {syncStatus === 'connected'
+                ? 'Supabase Realtime Live'
+                : syncStatus === 'syncing'
+                ? 'Syncing Database...'
+                : syncStatus === 'error'
+                ? 'Sync Error'
+                : 'Local / Offline Mode'}
+            </Text>
+          </View>
+        </View>
+
         {/* Search input field */}
         <View style={styles.searchSection}>
           <View style={[styles.searchContainer, { backgroundColor: theme.searchBg }]}>
@@ -237,15 +286,32 @@ export default function ListsScreen() {
           />
         </View>
 
-        {/* Empty state fallback */}
-        {filteredLists.length === 0 ? (
-          <View style={styles.emptyContainer}>
+        {/* Main Content / Loading / Empty */}
+        {isLoading && filteredLists.length === 0 ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#208AEF" />
+            <Text style={[styles.loadingText, { color: theme.textSecondary }]}>
+              Connecting to Supabase DB...
+            </Text>
+          </View>
+        ) : filteredLists.length === 0 ? (
+          <ScrollView
+            contentContainerStyle={styles.emptyContainer}
+            refreshControl={
+              <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor="#208AEF" />
+            }
+          >
             <Ionicons name="clipboard-outline" size={60} color={theme.textSecondary} />
             <Text style={[styles.emptyText, { color: theme.textSecondary }]}>No lists found</Text>
-          </View>
+          </ScrollView>
         ) : (
           /* Main list content */
-          <ScrollView contentContainerStyle={styles.listContent}>
+          <ScrollView
+            contentContainerStyle={styles.listContent}
+            refreshControl={
+              <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor="#208AEF" />
+            }
+          >
             {/* Pinned lists section */}
             {pinnedLists.length > 0 && (
               <View style={styles.section}>
@@ -284,7 +350,32 @@ export default function ListsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  searchSection: { paddingHorizontal: '4%', paddingTop: 8, paddingBottom: 4 },
+  statusBarContainer: {
+    paddingHorizontal: '4%',
+    paddingTop: 4,
+    paddingBottom: 2,
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+  },
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    backgroundColor: 'rgba(142, 142, 147, 0.12)',
+  },
+  statusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    marginRight: 6,
+  },
+  statusText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  searchSection: { paddingHorizontal: '4%', paddingTop: 6, paddingBottom: 4 },
   searchContainer: { flexDirection: 'row', alignItems: 'center', borderRadius: 10, paddingHorizontal: 10, height: 38 },
   searchIcon: { marginRight: 6 },
   searchInput: { flex: 1, fontSize: 15, paddingVertical: 0 },
@@ -312,6 +403,8 @@ const styles = StyleSheet.create({
   typeIndicator: { fontSize: 15, fontWeight: '600' },
   itemText: { fontSize: 15, flex: 1 },
   completedText: { textDecorationLine: 'line-through', opacity: 0.5 },
+  loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  loadingText: { marginTop: 12, fontSize: 14, fontWeight: '500' },
   emptyContainer: { alignItems: 'center', justifyContent: 'center', paddingTop: '20%' },
   emptyText: { marginTop: 12, fontSize: 16 },
 });
