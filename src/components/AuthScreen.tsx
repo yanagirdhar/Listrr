@@ -345,10 +345,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 14,
     elevation: 4,
-    shadowColor: '#208AEF',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
+    boxShadow: '0px 4px 8px rgba(32, 138, 239, 0.3)',
   },
   brandTitle: {
     fontSize: 28,
@@ -367,10 +364,7 @@ const styles = StyleSheet.create({
     padding: 22,
     borderWidth: 1,
     elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
+    boxShadow: '0px 2px 10px rgba(0, 0, 0, 0.1)',
   },
   tabBar: {
     flexDirection: 'row',
@@ -387,10 +381,7 @@ const styles = StyleSheet.create({
   },
   tabButtonActive: {
     elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.15,
-    shadowRadius: 3,
+    boxShadow: '0px 1px 3px rgba(0, 0, 0, 0.15)',
   },
   tabText: {
     fontSize: 14,
@@ -449,10 +440,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 8,
     elevation: 2,
-    shadowColor: '#208AEF',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
+    boxShadow: '0px 3px 6px rgba(32, 138, 239, 0.25)',
   },
   submitButtonDisabled: {
     opacity: 0.65,

@@ -32,9 +32,9 @@ export default function TabLayout() {
             backgroundColor: theme.bg,
             borderTopColor: theme.border,
           },
+          headerShadowVisible: false,
           headerStyle: {
             backgroundColor: theme.bg,
-            shadowColor: 'transparent',
             elevation: 0,
           },
           headerTitleStyle: {

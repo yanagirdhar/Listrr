@@ -535,7 +535,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   avatarImage: {
-    resizeMode: 'cover',
+    width: '100%',
+    height: '100%',
   },
   avatarInitials: {
     fontWeight: '800',
