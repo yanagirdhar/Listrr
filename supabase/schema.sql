@@ -1,5 +1,5 @@
 -- ==============================================================================
--- LISTRR - SUPABASE DATABASE SCHEMA & REALTIME SETUP
+-- LISTRR - SUPABASE DATABASE SCHEMA & MULTI-TENANT REALTIME SETUP
 -- Run this script in your Supabase SQL Editor (https://supabase.com/dashboard/project/_/sql)
 -- ==============================================================================
 
@@ -22,18 +22,10 @@ CREATE TABLE IF NOT EXISTS public.lists (
 );
 
 -- Upgrade existing 'lists' table with user_id column if not present
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_schema = 'public' AND table_name = 'lists' AND column_name = 'user_id'
-  ) THEN
-    ALTER TABLE public.lists ADD COLUMN user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE DEFAULT auth.uid();
-  END IF;
-END $$;
+ALTER TABLE public.lists ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE DEFAULT auth.uid();
 
 
--- 3. Create 'list_items' Table (Cascades deletion when a list is deleted)
+-- 3. Create 'list_items' Table (Cascades deletion when parent list is deleted)
 CREATE TABLE IF NOT EXISTS public.list_items (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     list_id UUID NOT NULL REFERENCES public.lists(id) ON DELETE CASCADE,
@@ -43,7 +35,7 @@ CREATE TABLE IF NOT EXISTS public.list_items (
     created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- 4. Create Indexes for High-Performance Queries & Realtime Filtering
+-- 4. Create Indexes for Fast User Queries & Realtime Filtering
 CREATE INDEX IF NOT EXISTS idx_lists_user_id ON public.lists (user_id);
 CREATE INDEX IF NOT EXISTS idx_lists_is_archived ON public.lists (is_archived);
 CREATE INDEX IF NOT EXISTS idx_lists_is_pinned ON public.lists (is_pinned);
@@ -66,12 +58,11 @@ BEFORE UPDATE ON public.lists
 FOR EACH ROW
 EXECUTE FUNCTION public.handle_updated_at();
 
--- 6. Enable Row Level Security (RLS)
+-- 6. Enable Row Level Security (RLS) on both tables
 ALTER TABLE public.lists ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.list_items ENABLE ROW LEVEL SECURITY;
 
--- 7. Row Level Security (RLS) Policies
--- Drop previous policies to ensure clean idempotent migrations
+-- 7. Drop existing policies to guarantee clean idempotent updates
 DROP POLICY IF EXISTS "Allow select on lists" ON public.lists;
 DROP POLICY IF EXISTS "Allow insert on lists" ON public.lists;
 DROP POLICY IF EXISTS "Allow update on lists" ON public.lists;
@@ -80,14 +71,6 @@ DROP POLICY IF EXISTS "Allow select on list_items" ON public.list_items;
 DROP POLICY IF EXISTS "Allow insert on list_items" ON public.list_items;
 DROP POLICY IF EXISTS "Allow update on list_items" ON public.list_items;
 DROP POLICY IF EXISTS "Allow delete on list_items" ON public.list_items;
-DROP POLICY IF EXISTS "Allow anon and auth select on lists" ON public.lists;
-DROP POLICY IF EXISTS "Allow anon and auth insert on lists" ON public.lists;
-DROP POLICY IF EXISTS "Allow anon and auth update on lists" ON public.lists;
-DROP POLICY IF EXISTS "Allow anon and auth delete on lists" ON public.lists;
-DROP POLICY IF EXISTS "Allow anon and auth select on list_items" ON public.list_items;
-DROP POLICY IF EXISTS "Allow anon and auth insert on list_items" ON public.list_items;
-DROP POLICY IF EXISTS "Allow anon and auth update on list_items" ON public.list_items;
-DROP POLICY IF EXISTS "Allow anon and auth delete on list_items" ON public.list_items;
 DROP POLICY IF EXISTS "anon_select_lists" ON public.lists;
 DROP POLICY IF EXISTS "anon_insert_lists" ON public.lists;
 DROP POLICY IF EXISTS "anon_update_lists" ON public.lists;
@@ -104,101 +87,48 @@ DROP POLICY IF EXISTS "auth_select_list_items" ON public.list_items;
 DROP POLICY IF EXISTS "auth_insert_list_items" ON public.list_items;
 DROP POLICY IF EXISTS "auth_update_list_items" ON public.list_items;
 DROP POLICY IF EXISTS "auth_delete_list_items" ON public.list_items;
+DROP POLICY IF EXISTS "user_select_lists" ON public.lists;
+DROP POLICY IF EXISTS "user_insert_lists" ON public.lists;
+DROP POLICY IF EXISTS "user_update_lists" ON public.lists;
+DROP POLICY IF EXISTS "user_delete_lists" ON public.lists;
+DROP POLICY IF EXISTS "user_select_list_items" ON public.list_items;
+DROP POLICY IF EXISTS "user_insert_list_items" ON public.list_items;
+DROP POLICY IF EXISTS "user_update_list_items" ON public.list_items;
+DROP POLICY IF EXISTS "user_delete_list_items" ON public.list_items;
 
--- 7A. Anonymous / Guest Policies (user_id IS NULL)
-CREATE POLICY "anon_select_lists" ON public.lists
-    FOR SELECT TO anon
-    USING (user_id IS NULL);
+-- 8. Strict Multi-Tenant Row Level Security (RLS) Policies
+-- Each authenticated user can ONLY access and modify their OWN lists and items.
 
-CREATE POLICY "anon_insert_lists" ON public.lists
-    FOR INSERT TO anon
-    WITH CHECK (user_id IS NULL);
-
-CREATE POLICY "anon_update_lists" ON public.lists
-    FOR UPDATE TO anon
-    USING (user_id IS NULL)
-    WITH CHECK (user_id IS NULL);
-
-CREATE POLICY "anon_delete_lists" ON public.lists
-    FOR DELETE TO anon
-    USING (user_id IS NULL);
-
-CREATE POLICY "anon_select_list_items" ON public.list_items
-    FOR SELECT TO anon
-    USING (
-        EXISTS (
-            SELECT 1 FROM public.lists
-            WHERE lists.id = list_items.list_id
-              AND lists.user_id IS NULL
-        )
-    );
-
-CREATE POLICY "anon_insert_list_items" ON public.list_items
-    FOR INSERT TO anon
-    WITH CHECK (
-        EXISTS (
-            SELECT 1 FROM public.lists
-            WHERE lists.id = list_items.list_id
-              AND lists.user_id IS NULL
-        )
-    );
-
-CREATE POLICY "anon_update_list_items" ON public.list_items
-    FOR UPDATE TO anon
-    USING (
-        EXISTS (
-            SELECT 1 FROM public.lists
-            WHERE lists.id = list_items.list_id
-              AND lists.user_id IS NULL
-        )
-    )
-    WITH CHECK (
-        EXISTS (
-            SELECT 1 FROM public.lists
-            WHERE lists.id = list_items.list_id
-              AND lists.user_id IS NULL
-        )
-    );
-
-CREATE POLICY "anon_delete_list_items" ON public.list_items
-    FOR DELETE TO anon
-    USING (
-        EXISTS (
-            SELECT 1 FROM public.lists
-            WHERE lists.id = list_items.list_id
-              AND lists.user_id IS NULL
-        )
-    );
-
--- 7B. Authenticated User Policies (Scoped to auth.uid())
-CREATE POLICY "auth_select_lists" ON public.lists
+-- 8A. 'lists' Policies (Restricted to auth.uid() == user_id)
+CREATE POLICY "user_select_lists" ON public.lists
     FOR SELECT TO authenticated
-    USING (user_id = auth.uid() OR user_id IS NULL);
+    USING (user_id = auth.uid());
 
-CREATE POLICY "auth_insert_lists" ON public.lists
+CREATE POLICY "user_insert_lists" ON public.lists
     FOR INSERT TO authenticated
     WITH CHECK (user_id = auth.uid());
 
-CREATE POLICY "auth_update_lists" ON public.lists
+CREATE POLICY "user_update_lists" ON public.lists
     FOR UPDATE TO authenticated
     USING (user_id = auth.uid())
     WITH CHECK (user_id = auth.uid());
 
-CREATE POLICY "auth_delete_lists" ON public.lists
+CREATE POLICY "user_delete_lists" ON public.lists
     FOR DELETE TO authenticated
     USING (user_id = auth.uid());
 
-CREATE POLICY "auth_select_list_items" ON public.list_items
+-- 8B. 'list_items' Policies (Restricted to items belonging to user's lists)
+CREATE POLICY "user_select_list_items" ON public.list_items
     FOR SELECT TO authenticated
     USING (
         EXISTS (
             SELECT 1 FROM public.lists
             WHERE lists.id = list_items.list_id
-              AND (lists.user_id = auth.uid() OR lists.user_id IS NULL)
+              AND lists.user_id = auth.uid()
         )
     );
 
-CREATE POLICY "auth_insert_list_items" ON public.list_items
+CREATE POLICY "user_insert_list_items" ON public.list_items
     FOR INSERT TO authenticated
     WITH CHECK (
         EXISTS (
@@ -208,7 +138,7 @@ CREATE POLICY "auth_insert_list_items" ON public.list_items
         )
     );
 
-CREATE POLICY "auth_update_list_items" ON public.list_items
+CREATE POLICY "user_update_list_items" ON public.list_items
     FOR UPDATE TO authenticated
     USING (
         EXISTS (
@@ -225,7 +155,7 @@ CREATE POLICY "auth_update_list_items" ON public.list_items
         )
     );
 
-CREATE POLICY "auth_delete_list_items" ON public.list_items
+CREATE POLICY "user_delete_list_items" ON public.list_items
     FOR DELETE TO authenticated
     USING (
         EXISTS (
@@ -235,8 +165,7 @@ CREATE POLICY "auth_delete_list_items" ON public.list_items
         )
     );
 
-
--- 8. Enable Realtime Publications for Postgres Changes
+-- 9. Enable Realtime Publications for Postgres Changes
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -254,46 +183,5 @@ BEGIN
   END IF;
 END $$;
 
--- 9. Insert Initial Starter Seed Data (Real Database Rows)
-DO $$
-DECLARE
-    grocery_list_id UUID := gen_random_uuid();
-    launch_list_id UUID := gen_random_uuid();
-    features_list_id UUID := gen_random_uuid();
-BEGIN
-    -- Only insert seed data if table is currently empty
-    IF NOT EXISTS (SELECT 1 FROM public.lists) THEN
-        -- List 1: Weekend Grocery Run
-        INSERT INTO public.lists (id, title, type, tag, is_pinned, is_archived, position)
-        VALUES (grocery_list_id, 'Weekend Grocery Run', 'checklist', 'Shopping', true, false, 0);
-
-        INSERT INTO public.list_items (list_id, text, is_completed, position) VALUES
-        (grocery_list_id, 'Organic Almond Milk', true, 0),
-        (grocery_list_id, 'Fresh Avocados (x4)', false, 1),
-        (grocery_list_id, 'Artisan Sourdough Loaf', false, 2),
-        (grocery_list_id, 'Greek Yogurt (Plain)', true, 3),
-        (grocery_list_id, 'Dark Roast Coffee Beans', false, 4);
-
-        -- List 2: Product Launch Sequence
-        INSERT INTO public.lists (id, title, type, tag, is_pinned, is_archived, position)
-        VALUES (launch_list_id, 'Production Launch Sequence', 'numbered', 'Work', true, false, 1);
-
-        INSERT INTO public.list_items (list_id, text, is_completed, position) VALUES
-        (launch_list_id, 'Run production TypeScript verification & bundle check', true, 0),
-        (launch_list_id, 'Deploy Supabase migrations & test realtime sync', true, 1),
-        (launch_list_id, 'Configure EAS build profiles in eas.json', false, 2),
-        (launch_list_id, 'Submit iOS build to App Store Connect & TestFlight', false, 3),
-        (launch_list_id, 'Publish Android AAB to Google Play Console', false, 4);
-
-        -- List 3: Listrr Core Features
-        INSERT INTO public.lists (id, title, type, tag, is_pinned, is_archived, position)
-        VALUES (features_list_id, 'Listrr Core Features', 'bulleted', 'Product', false, false, 2);
-
-        INSERT INTO public.list_items (list_id, text, is_completed, position) VALUES
-        (features_list_id, 'Instant Realtime Supabase synchronization', false, 0),
-        (features_list_id, 'Drag and drop reordering with smooth animations', false, 1),
-        (features_list_id, 'Offline-resilient optimistic state updates', false, 2),
-        (features_list_id, 'Full dark mode & light mode dynamic themes', false, 3);
-    END IF;
-END $$;
-
+-- 10. (Optional) Auto-confirm any unconfirmed users if needed in your database:
+UPDATE auth.users SET email_confirmed_at = now() WHERE email_confirmed_at IS NULL;

@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { View, StyleSheet, useWindowDimensions } from 'react-native';
+import { View, StyleSheet, useWindowDimensions, Image } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLists } from '../../context/ListContext';
 
@@ -48,6 +48,13 @@ export default function TabLayout() {
           name="index"
           options={{
             title: 'My Lists',
+            headerLeft: () => (
+              <Image
+                source={require('../../../assets/Branding/logo.png')}
+                style={styles.headerLogo}
+                resizeMode="contain"
+              />
+            ),
             tabBarIcon: ({ color, size }) => (
               <Ionicons name="list-outline" size={size} color={color} />
             ),
@@ -108,6 +115,12 @@ export default function TabLayout() {
 }
 
 const styles = StyleSheet.create({
+  headerLogo: {
+    width: 28,
+    height: 28,
+    borderRadius: 7,
+    marginLeft: 16,
+  },
   floatingButton: {
     backgroundColor: '#208AEF',
     justifyContent: 'center',

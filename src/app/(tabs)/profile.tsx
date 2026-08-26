@@ -8,19 +8,22 @@ import {
   TouchableOpacity,
   useWindowDimensions,
   ActivityIndicator,
+  Alert,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useLists } from '../../context/ListContext';
+import { useAuth } from '../../context/AuthContext';
 
 export default function ProfileScreen() {
   const router = useRouter();
+  const { user, username, email, signOut } = useAuth();
   
   // Get lists state and dark mode handlers from context
   const {
     lists,
     isDarkMode,
-    isConfigured,
     syncStatus,
     toggleDarkMode,
     refreshLists,
@@ -42,6 +45,14 @@ export default function ProfileScreen() {
   // Dynamic avatar size based on screen width
   const avatarSize = Math.min(width * 0.2, 80);
 
+  // Derive user initials
+  const initials = (username || 'U')
+    .split(' ')
+    .map((w) => w[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2);
+
   // Theme color styles
   const dynamicStyles = {
     container: { backgroundColor: isDarkMode ? '#121212' : '#F2F2F7' },
@@ -49,6 +60,24 @@ export default function ProfileScreen() {
     textPrimary: { color: isDarkMode ? '#FFFFFF' : '#000000' },
     textSecondary: { color: isDarkMode ? '#A0A0A0' : '#8E8E93' },
     divider: { backgroundColor: isDarkMode ? '#2C2C2E' : '#E5E5EA' },
+  };
+
+  const handleSignOut = () => {
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out of your account?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            await signOut();
+          },
+        },
+      ],
+      { cancelable: true }
+    );
   };
 
   return (
@@ -69,25 +98,69 @@ export default function ProfileScreen() {
             },
           ]}
         >
-          <Ionicons name="person" size={avatarSize * 0.5} color="#208AEF" />
+          <Text style={[styles.avatarInitials, { fontSize: avatarSize * 0.4 }]}>
+            {initials}
+          </Text>
         </View>
-        <Text style={[styles.userName, dynamicStyles.textPrimary]}>Listrr Workspace</Text>
+        <Text style={[styles.userName, dynamicStyles.textPrimary]}>{username}</Text>
         <Text style={[styles.userEmail, dynamicStyles.textSecondary]}>
-          realtime@listrr.app
+          {email || 'Authenticated User'}
         </Text>
+      </View>
+
+      {/* Account Details Section */}
+      <Text style={[styles.sectionTitle, dynamicStyles.textSecondary]}>
+        Account
+      </Text>
+      <View style={[styles.card, dynamicStyles.card]}>
+        <View style={styles.infoRow}>
+          <View style={styles.settingLabelGroup}>
+            <Ionicons name="person-circle-outline" size={20} color="#208AEF" />
+            <Text style={[styles.infoLabel, dynamicStyles.textPrimary]}>Username</Text>
+          </View>
+          <Text style={[styles.infoValue, dynamicStyles.textSecondary]}>{username}</Text>
+        </View>
+
+        <View style={[styles.divider, dynamicStyles.divider]} />
+
+        <View style={styles.infoRow}>
+          <View style={styles.settingLabelGroup}>
+            <Ionicons name="mail-outline" size={20} color="#208AEF" />
+            <Text style={[styles.infoLabel, dynamicStyles.textPrimary]}>Account ID</Text>
+          </View>
+          <Text style={[styles.infoValue, { color: '#8E8E93', fontSize: 13 }]}>
+            {user?.id ? `${user.id.slice(0, 12)}...` : 'Local User'}
+          </Text>
+        </View>
+
+        <View style={[styles.divider, dynamicStyles.divider]} />
+
+        <TouchableOpacity
+          style={styles.signOutRow}
+          onPress={handleSignOut}
+          activeOpacity={0.7}
+        >
+          <View style={styles.settingLabelGroup}>
+            <Ionicons name="log-out-outline" size={20} color="#FF3B30" />
+            <Text style={[styles.infoLabel, { color: '#FF3B30', fontWeight: '600' }]}>
+              Sign Out
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color="#FF3B30" />
+        </TouchableOpacity>
       </View>
 
       {/* Database & Realtime Status */}
       <Text style={[styles.sectionTitle, dynamicStyles.textSecondary]}>
-        Backend & Database
+        Database & Sync
       </Text>
       <View style={[styles.card, dynamicStyles.card]}>
         <View style={styles.infoRow}>
           <View style={styles.settingLabelGroup}>
             <Ionicons name="server-outline" size={20} color="#208AEF" />
-            <Text style={[styles.infoLabel, dynamicStyles.textPrimary]}>Database Provider</Text>
+            <Text style={[styles.infoLabel, dynamicStyles.textPrimary]}>Database Isolation</Text>
           </View>
-          <Text style={[styles.infoValue, { color: '#208AEF', fontWeight: '600' }]}>Supabase</Text>
+          <Text style={[styles.infoValue, { color: '#34C759', fontWeight: '600' }]}>Private User RLS</Text>
         </View>
         <View style={[styles.divider, dynamicStyles.divider]} />
         <View style={styles.infoRow}>
@@ -223,6 +296,20 @@ export default function ProfileScreen() {
         About
       </Text>
       <View style={[styles.card, dynamicStyles.card]}>
+        <View style={styles.aboutBrandRow}>
+          <Image
+            source={require('../../../assets/Branding/logo.png')}
+            style={styles.aboutLogo}
+            resizeMode="contain"
+          />
+          <View>
+            <Text style={[styles.aboutBrandTitle, dynamicStyles.textPrimary]}>Listrr</Text>
+            <Text style={[styles.aboutBrandSubtitle, dynamicStyles.textSecondary]}>
+              Private Multi-Tenant Workspace
+            </Text>
+          </View>
+        </View>
+        <View style={[styles.divider, dynamicStyles.divider]} />
         <View style={styles.infoRow}>
           <Text style={[styles.infoLabel, dynamicStyles.textPrimary]}>
             App Version
@@ -234,19 +321,10 @@ export default function ProfileScreen() {
         <View style={[styles.divider, dynamicStyles.divider]} />
         <View style={styles.infoRow}>
           <Text style={[styles.infoLabel, dynamicStyles.textPrimary]}>
-            Framework
+            Multi-Tenant Security
           </Text>
-          <Text style={[styles.infoValue, dynamicStyles.textSecondary]}>
-            Expo Router (SDK 57)
-          </Text>
-        </View>
-        <View style={[styles.divider, dynamicStyles.divider]} />
-        <View style={styles.infoRow}>
-          <Text style={[styles.infoLabel, dynamicStyles.textPrimary]}>
-            Database
-          </Text>
-          <Text style={[styles.infoValue, dynamicStyles.textSecondary]}>
-            Supabase PostgreSQL
+          <Text style={[styles.infoValue, { color: '#34C759', fontWeight: '500' }]}>
+            Row-Level Security Active
           </Text>
         </View>
       </View>
@@ -256,12 +334,16 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { padding: '5%' },
+  content: { padding: '5%', paddingBottom: 40 },
   profileHeader: { alignItems: 'center', marginBottom: 24 },
   avatar: {
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 12,
+  },
+  avatarInitials: {
+    fontWeight: '800',
+    color: '#208AEF',
   },
   userName: { fontSize: 20, fontWeight: 'bold' },
   userEmail: { fontSize: 14, marginTop: 2 },
@@ -291,5 +373,10 @@ const styles = StyleSheet.create({
   statusDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 },
   syncBtnRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 6 },
   syncBtnText: { fontSize: 15, fontWeight: '600' },
+  signOutRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 4 },
+  aboutBrandRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 4 },
+  aboutLogo: { width: 36, height: 36, borderRadius: 8 },
+  aboutBrandTitle: { fontSize: 16, fontWeight: '700' },
+  aboutBrandSubtitle: { fontSize: 12, marginTop: 1 },
   divider: { height: 1, marginVertical: 10 },
 });
