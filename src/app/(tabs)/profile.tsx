@@ -22,7 +22,7 @@ const MAX_AVATAR_SIZE_BYTES = 500 * 1024; // 500 KB limit
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { user, username, email, avatarUrl, signOut, updateAvatar } = useAuth();
+  const { user, username, email, avatarUrl, signOut, updateAvatar, deleteAccount } = useAuth();
   const [isUpdatingAvatar, setIsUpdatingAvatar] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
   
@@ -89,6 +89,37 @@ export default function ProfileScreen() {
             style: 'destructive',
             onPress: async () => {
               await signOut();
+            },
+          },
+        ],
+        { cancelable: true }
+      );
+    }
+  };
+
+  // Cross-platform Account Deletion handler (Apple App Store Guideline 5.1.1(v))
+  const handleDeleteAccount = async () => {
+    const message =
+      'Are you sure you want to delete your account? All your lists and account data will be permanently removed. This action cannot be undone.';
+    if (Platform.OS === 'web') {
+      const confirmDelete =
+        typeof window !== 'undefined'
+          ? window.confirm(message)
+          : true;
+      if (confirmDelete) {
+        await deleteAccount();
+      }
+    } else {
+      Alert.alert(
+        'Delete Account',
+        message,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: async () => {
+              await deleteAccount();
             },
           },
         ],
@@ -282,9 +313,26 @@ export default function ProfileScreen() {
           activeOpacity={0.7}
         >
           <View style={styles.settingLabelGroup}>
-            <Ionicons name="log-out-outline" size={20} color="#FF3B30" />
-            <Text style={[styles.infoLabel, { color: '#FF3B30', fontWeight: '700' }]}>
+            <Ionicons name="log-out-outline" size={20} color="#FF9500" />
+            <Text style={[styles.infoLabel, { color: '#FF9500', fontWeight: '600' }]}>
               Sign Out
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color="#FF9500" />
+        </TouchableOpacity>
+
+        <View style={[styles.divider, dynamicStyles.divider]} />
+
+        {/* Delete Account Button (Apple Guideline 5.1.1(v)) */}
+        <TouchableOpacity
+          style={styles.signOutRow}
+          onPress={handleDeleteAccount}
+          activeOpacity={0.7}
+        >
+          <View style={styles.settingLabelGroup}>
+            <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+            <Text style={[styles.infoLabel, { color: '#FF3B30', fontWeight: '600' }]}>
+              Delete Account & Data
             </Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color="#FF3B30" />

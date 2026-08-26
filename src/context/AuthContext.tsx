@@ -42,6 +42,7 @@ export interface AuthContextType {
   signUp: (identifier: string, password: string, usernameInput?: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   updateAvatar: (base64OrUrl: string | null) => Promise<{ error: Error | null }>;
+  deleteAccount: () => Promise<{ error: Error | null }>;
 }
 
 const defaultAuthContext: AuthContextType = {
@@ -56,6 +57,7 @@ const defaultAuthContext: AuthContextType = {
   signUp: async () => ({ error: new Error('Authentication is initializing') }),
   signOut: async () => {},
   updateAvatar: async () => ({ error: new Error('Authentication is initializing') }),
+  deleteAccount: async () => ({ error: new Error('Authentication is initializing') }),
 };
 
 const AuthContext = createContext<AuthContextType>(defaultAuthContext);
@@ -264,6 +266,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
+  // Delete Account completely (Lists, Profiles, Local Cache) - Apple Guideline 5.1.1(v)
+  const deleteAccount = useCallback(async (): Promise<{ error: Error | null }> => {
+    if (!user) return { error: null };
+
+    const userId = user.id;
+
+    try {
+      if (isSupabaseConfigured) {
+        // 1. Delete all user lists (cascade deletes list_items)
+        await supabase.from('lists').delete().eq('user_id', userId);
+
+        // 2. Delete user profile
+        await supabase.from('profiles').delete().eq('id', userId);
+      }
+
+      // 3. Clear cached storage
+      try {
+        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+        await AsyncStorage.removeItem(`@listrr_cached_lists_v2_${userId}`);
+      } catch (storageErr) {
+        console.warn('Failed to clear cached storage on account deletion:', storageErr);
+      }
+
+      // 4. Sign out
+      await signOut();
+
+      return { error: null };
+    } catch (err: any) {
+      console.error('Error during account deletion:', err);
+      return { error: err instanceof Error ? err : new Error(String(err)) };
+    }
+  }, [user, signOut]);
+
   const currentUsername = getDisplayUsername(user);
   const currentEmail = user?.email || null;
 
@@ -281,6 +316,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         signUp,
         signOut,
         updateAvatar,
+        deleteAccount,
       }}
     >
       {children}
