@@ -235,8 +235,13 @@ CREATE POLICY "user_delete_list_items" ON public.list_items
 
 
 -- ==============================================================================
--- 6. REALTIME PUBLICATIONS
+-- 6. REALTIME PUBLICATIONS & REPLICA IDENTITY
 -- ==============================================================================
+-- Set REPLICA IDENTITY FULL to ensure UPDATE and DELETE events deliver complete rows under RLS
+ALTER TABLE public.profiles REPLICA IDENTITY FULL;
+ALTER TABLE public.lists REPLICA IDENTITY FULL;
+ALTER TABLE public.list_items REPLICA IDENTITY FULL;
+
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -260,6 +265,3 @@ BEGIN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.list_items;
   END IF;
 END $$;
-
--- 7. Auto-confirm any existing users if needed for instant access
-UPDATE auth.users SET email_confirmed_at = now() WHERE email_confirmed_at IS NULL;

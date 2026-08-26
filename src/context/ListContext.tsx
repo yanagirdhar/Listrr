@@ -251,9 +251,11 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (!isSupabaseConfigured) return;
 
-    // Subscribe to realtime database changes filtered for this specific user
+    // Subscribe to realtime database changes for authenticated user workspace:
+    // 1. lists table changes are filtered by user_id at the Postgres subscription level
+    // 2. list_items changes trigger a secure user-scoped fetchListsFromDB() query protected by RLS
     const channel = supabase
-      .channel(`realtime_user_lists_${currentUserId}`)
+      .channel(`realtime_user_workspace_${currentUserId}`)
       .on(
         'postgres_changes',
         {
@@ -262,8 +264,7 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
           table: 'lists',
           filter: `user_id=eq.${currentUserId}`,
         },
-        (payload) => {
-          console.log('Realtime User List Event:', payload.eventType);
+        () => {
           fetchListsFromDB(false);
         }
       )
@@ -274,8 +275,7 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
           schema: 'public',
           table: 'list_items',
         },
-        (payload) => {
-          console.log('Realtime User Item Event:', payload.eventType);
+        () => {
           fetchListsFromDB(false);
         }
       )
