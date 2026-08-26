@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -10,15 +10,21 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 import { useLists } from '../../context/ListContext';
 import { useAuth } from '../../context/AuthContext';
 
+const MAX_AVATAR_SIZE_BYTES = 500 * 1024; // 500 KB limit
+
 export default function ProfileScreen() {
   const router = useRouter();
-  const { user, username, email, signOut } = useAuth();
+  const { user, username, email, avatarUrl, signOut, updateAvatar } = useAuth();
+  const [isUpdatingAvatar, setIsUpdatingAvatar] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
   
   // Get lists state and dark mode handlers from context
   const {
@@ -43,7 +49,7 @@ export default function ProfileScreen() {
   );
 
   // Dynamic avatar size based on screen width
-  const avatarSize = Math.min(width * 0.2, 80);
+  const avatarSize = Math.min(width * 0.22, 90);
 
   // Derive user initials
   const initials = (username || 'U')
@@ -62,22 +68,106 @@ export default function ProfileScreen() {
     divider: { backgroundColor: isDarkMode ? '#2C2C2E' : '#E5E5EA' },
   };
 
-  const handleSignOut = () => {
-    Alert.alert(
-      'Sign Out',
-      'Are you sure you want to sign out of your account?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Sign Out',
-          style: 'destructive',
-          onPress: async () => {
-            await signOut();
+  // Cross-platform Sign Out handler
+  const handleSignOut = async () => {
+    if (Platform.OS === 'web') {
+      const confirmSignOut =
+        typeof window !== 'undefined'
+          ? window.confirm('Are you sure you want to sign out?')
+          : true;
+      if (confirmSignOut) {
+        await signOut();
+      }
+    } else {
+      Alert.alert(
+        'Sign Out',
+        'Are you sure you want to sign out of your account?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Sign Out',
+            style: 'destructive',
+            onPress: async () => {
+              await signOut();
+            },
           },
-        },
-      ],
-      { cancelable: true }
-    );
+        ],
+        { cancelable: true }
+      );
+    }
+  };
+
+  // Handle Pick Profile Picture with < 500 KB constraint
+  const handlePickAvatar = async () => {
+    setAvatarError(null);
+
+    try {
+      // Request permission
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        const msg = 'Please grant photo library permissions to change your avatar.';
+        if (Platform.OS === 'web') alert(msg);
+        else Alert.alert('Permission Required', msg);
+        return;
+      }
+
+      // Launch image picker with square crop
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.6,
+        base64: true,
+      });
+
+      if (result.canceled || !result.assets || result.assets.length === 0) {
+        return;
+      }
+
+      const selectedAsset = result.assets[0];
+      
+      // Calculate byte size (base64 length * 0.75 or fileSize)
+      let estimatedSizeBytes = selectedAsset.fileSize || 0;
+      if (!estimatedSizeBytes && selectedAsset.base64) {
+        estimatedSizeBytes = Math.round(selectedAsset.base64.length * 0.75);
+      }
+
+      // Enforce 500 KB limit strictly
+      if (estimatedSizeBytes > MAX_AVATAR_SIZE_BYTES) {
+        const sizeInKb = (estimatedSizeBytes / 1024).toFixed(0);
+        const errorMsg = `Image size (${sizeInKb} KB) exceeds the 500 KB limit. Please choose a smaller image.`;
+        setAvatarError(errorMsg);
+        if (Platform.OS === 'web') alert(errorMsg);
+        else Alert.alert('Image Too Large', errorMsg);
+        return;
+      }
+
+      setIsUpdatingAvatar(true);
+
+      // Create data URI
+      const dataUri = selectedAsset.base64
+        ? `data:image/jpeg;base64,${selectedAsset.base64}`
+        : selectedAsset.uri;
+
+      await updateAvatar(dataUri);
+    } catch (err: any) {
+      console.error('Error selecting avatar:', err);
+      setAvatarError(err.message || 'Failed to update profile picture.');
+    } finally {
+      setIsUpdatingAvatar(false);
+    }
+  };
+
+  // Handle Remove Profile Picture
+  const handleRemoveAvatar = async () => {
+    setIsUpdatingAvatar(true);
+    try {
+      await updateAvatar(null);
+    } catch (err) {
+      console.warn('Error removing avatar:', err);
+    } finally {
+      setIsUpdatingAvatar(false);
+    }
   };
 
   return (
@@ -85,27 +175,77 @@ export default function ProfileScreen() {
       style={[styles.container, dynamicStyles.container]}
       contentContainerStyle={styles.content}
     >
-      {/* Profile avatar and user info */}
+      {/* Profile avatar with edit badge & user info */}
       <View style={styles.profileHeader}>
-        <View
-          style={[
-            styles.avatar,
-            {
-              width: avatarSize,
-              height: avatarSize,
-              borderRadius: avatarSize / 2,
-              backgroundColor: isDarkMode ? '#1A385C' : '#E6F4FE',
-            },
-          ]}
-        >
-          <Text style={[styles.avatarInitials, { fontSize: avatarSize * 0.4 }]}>
-            {initials}
-          </Text>
+        <View style={styles.avatarWrapper}>
+          <TouchableOpacity
+            style={[
+              styles.avatar,
+              {
+                width: avatarSize,
+                height: avatarSize,
+                borderRadius: avatarSize / 2,
+                backgroundColor: isDarkMode ? '#1A385C' : '#E6F4FE',
+              },
+            ]}
+            onPress={handlePickAvatar}
+            disabled={isUpdatingAvatar}
+            activeOpacity={0.8}
+          >
+            {isUpdatingAvatar ? (
+              <ActivityIndicator size="small" color="#208AEF" />
+            ) : avatarUrl ? (
+              <Image
+                source={{ uri: avatarUrl }}
+                style={[
+                  styles.avatarImage,
+                  {
+                    width: avatarSize,
+                    height: avatarSize,
+                    borderRadius: avatarSize / 2,
+                  },
+                ]}
+              />
+            ) : (
+              <Text style={[styles.avatarInitials, { fontSize: avatarSize * 0.38 }]}>
+                {initials}
+              </Text>
+            )}
+          </TouchableOpacity>
+
+          {/* Edit Camera Badge */}
+          <TouchableOpacity
+            style={styles.cameraBadge}
+            onPress={handlePickAvatar}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="camera" size={14} color="#FFFFFF" />
+          </TouchableOpacity>
         </View>
+
         <Text style={[styles.userName, dynamicStyles.textPrimary]}>{username}</Text>
         <Text style={[styles.userEmail, dynamicStyles.textSecondary]}>
           {email || 'Authenticated User'}
         </Text>
+
+        {/* Change / Remove photo action row */}
+        <View style={styles.avatarActionsRow}>
+          <TouchableOpacity onPress={handlePickAvatar} style={styles.avatarActionBtn}>
+            <Text style={styles.avatarActionText}>Change Photo (max 500KB)</Text>
+          </TouchableOpacity>
+          {avatarUrl && (
+            <>
+              <Text style={styles.avatarActionDivider}>•</Text>
+              <TouchableOpacity onPress={handleRemoveAvatar} style={styles.avatarActionBtn}>
+                <Text style={[styles.avatarActionText, { color: '#FF3B30' }]}>Remove</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+
+        {avatarError && (
+          <Text style={styles.avatarErrorText}>{avatarError}</Text>
+        )}
       </View>
 
       {/* Account Details Section */}
@@ -135,6 +275,7 @@ export default function ProfileScreen() {
 
         <View style={[styles.divider, dynamicStyles.divider]} />
 
+        {/* Sign Out Button */}
         <TouchableOpacity
           style={styles.signOutRow}
           onPress={handleSignOut}
@@ -142,7 +283,7 @@ export default function ProfileScreen() {
         >
           <View style={styles.settingLabelGroup}>
             <Ionicons name="log-out-outline" size={20} color="#FF3B30" />
-            <Text style={[styles.infoLabel, { color: '#FF3B30', fontWeight: '600' }]}>
+            <Text style={[styles.infoLabel, { color: '#FF3B30', fontWeight: '700' }]}>
               Sign Out
             </Text>
           </View>
@@ -335,18 +476,63 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { padding: '5%', paddingBottom: 40 },
-  profileHeader: { alignItems: 'center', marginBottom: 24 },
+  profileHeader: { alignItems: 'center', marginBottom: 20 },
+  avatarWrapper: {
+    position: 'relative',
+    marginBottom: 12,
+  },
   avatar: {
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 12,
+    overflow: 'hidden',
+  },
+  avatarImage: {
+    resizeMode: 'cover',
   },
   avatarInitials: {
     fontWeight: '800',
     color: '#208AEF',
   },
+  cameraBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: '#208AEF',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    elevation: 3,
+  },
   userName: { fontSize: 20, fontWeight: 'bold' },
   userEmail: { fontSize: 14, marginTop: 2 },
+  avatarActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  avatarActionBtn: {
+    paddingVertical: 2,
+    paddingHorizontal: 4,
+  },
+  avatarActionText: {
+    fontSize: 13,
+    color: '#208AEF',
+    fontWeight: '600',
+  },
+  avatarActionDivider: {
+    color: '#8E8E93',
+  },
+  avatarErrorText: {
+    fontSize: 12,
+    color: '#FF3B30',
+    marginTop: 6,
+    textAlign: 'center',
+  },
   sectionTitle: {
     fontSize: 14,
     fontWeight: '600',

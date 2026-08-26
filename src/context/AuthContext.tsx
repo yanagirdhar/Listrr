@@ -35,11 +35,13 @@ export interface AuthContextType {
   session: Session | null;
   username: string;
   email: string | null;
+  avatarUrl: string | null;
   isLoading: boolean;
   isConfigured: boolean;
   signIn: (identifier: string, password: string) => Promise<{ error: Error | null }>;
   signUp: (identifier: string, password: string, usernameInput?: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
+  updateAvatar: (base64OrUrl: string | null) => Promise<{ error: Error | null }>;
 }
 
 const defaultAuthContext: AuthContextType = {
@@ -47,11 +49,13 @@ const defaultAuthContext: AuthContextType = {
   session: null,
   username: 'Guest',
   email: null,
+  avatarUrl: null,
   isLoading: true,
   isConfigured: isSupabaseConfigured,
   signIn: async () => ({ error: new Error('Authentication is initializing') }),
   signUp: async () => ({ error: new Error('Authentication is initializing') }),
   signOut: async () => {},
+  updateAvatar: async () => ({ error: new Error('Authentication is initializing') }),
 };
 
 const AuthContext = createContext<AuthContextType>(defaultAuthContext);
@@ -59,6 +63,7 @@ const AuthContext = createContext<AuthContextType>(defaultAuthContext);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   // Initialize session and listen for auth state changes
@@ -81,6 +86,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (isMounted) {
           setSession(initialSession);
           setUser(initialSession?.user ?? null);
+          const metaAvatar = initialSession?.user?.user_metadata?.avatar_url || null;
+          setAvatarUrl(metaAvatar);
         }
       } catch (err) {
         console.error('Unexpected auth initialization error:', err);
@@ -100,6 +107,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (isMounted) {
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
+        const metaAvatar = currentSession?.user?.user_metadata?.avatar_url || null;
+        setAvatarUrl(metaAvatar);
         setIsLoading(false);
       }
     });
@@ -130,6 +139,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       setSession(data.session);
       setUser(data.user);
+      setAvatarUrl(data.user?.user_metadata?.avatar_url || null);
       return { error: null };
     } catch (err: any) {
       return { error: err instanceof Error ? err : new Error(String(err)) };
@@ -169,6 +179,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (data.session) {
         setSession(data.session);
         setUser(data.user);
+        setAvatarUrl(data.user?.user_metadata?.avatar_url || null);
         return { error: null };
       }
 
@@ -179,7 +190,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       if (signInResult.error) {
-        // If email confirmation is strictly required by Supabase backend project settings, inform user
         if (signInResult.error.message.toLowerCase().includes('email not confirmed')) {
           return {
             error: new Error(
@@ -192,27 +202,65 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       setSession(signInResult.data.session);
       setUser(signInResult.data.user);
+      setAvatarUrl(signInResult.data.user?.user_metadata?.avatar_url || null);
       return { error: null };
     } catch (err: any) {
       return { error: err instanceof Error ? err : new Error(String(err)) };
     }
   }, []);
 
-  // Sign Out cleanly
-  const signOut = useCallback(async () => {
-    if (!isSupabaseConfigured) {
-      setUser(null);
-      setSession(null);
-      return;
+  // Update Profile Picture Avatar
+  const updateAvatar = useCallback(async (newAvatar: string | null): Promise<{ error: Error | null }> => {
+    setAvatarUrl(newAvatar);
+
+    if (!isSupabaseConfigured || !user) {
+      return { error: null };
     }
 
     try {
-      await supabase.auth.signOut();
+      // 1. Update user metadata in Supabase Auth
+      const { data: updateData, error: updateError } = await supabase.auth.updateUser({
+        data: { avatar_url: newAvatar },
+      });
+
+      if (updateError) {
+        console.warn('Failed to update user auth metadata avatar:', updateError.message);
+      } else if (updateData?.user) {
+        setUser(updateData.user);
+      }
+
+      // 2. Sync to profiles table
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .upsert({
+          id: user.id,
+          avatar_url: newAvatar,
+          updated_at: new Date().toISOString(),
+        });
+
+      if (profileError) {
+        console.warn('Note: profiles table update failed (may not be migrated yet):', profileError.message);
+      }
+
+      return { error: null };
+    } catch (err: any) {
+      console.error('Error updating avatar in Supabase:', err);
+      return { error: err instanceof Error ? err : new Error(String(err)) };
+    }
+  }, [user]);
+
+  // Sign Out cleanly & immediately on all platforms
+  const signOut = useCallback(async () => {
+    try {
+      if (isSupabaseConfigured) {
+        await supabase.auth.signOut();
+      }
     } catch (err) {
       console.warn('Error during Supabase sign out:', err);
     } finally {
       setUser(null);
       setSession(null);
+      setAvatarUrl(null);
     }
   }, []);
 
@@ -226,11 +274,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         session,
         username: currentUsername,
         email: currentEmail,
+        avatarUrl,
         isLoading,
         isConfigured: isSupabaseConfigured,
         signIn,
         signUp,
         signOut,
+        updateAvatar,
       }}
     >
       {children}
