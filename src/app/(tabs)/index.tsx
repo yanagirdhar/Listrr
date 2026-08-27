@@ -122,7 +122,6 @@ export default function ListsScreen() {
   const {
     lists,
     isLoading,
-    syncStatus,
     isDarkMode,
     togglePinList,
     toggleItemComplete,
@@ -221,36 +220,6 @@ export default function ListsScreen() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]} edges={['bottom']}>
-        {/* Realtime Connection Status Bar */}
-        <View style={styles.statusBarContainer}>
-          <View style={styles.statusBadge}>
-            <View
-              style={[
-                styles.statusDot,
-                {
-                  backgroundColor:
-                    syncStatus === 'connected'
-                      ? '#34C759'
-                      : syncStatus === 'syncing'
-                      ? '#FF9500'
-                      : syncStatus === 'error'
-                      ? '#FF3B30'
-                      : '#8E8E93',
-                },
-              ]}
-            />
-            <Text style={[styles.statusText, { color: theme.textSecondary }]}>
-              {syncStatus === 'connected'
-                ? 'Supabase Realtime Live'
-                : syncStatus === 'syncing'
-                ? 'Syncing Database...'
-                : syncStatus === 'error'
-                ? 'Sync Error'
-                : 'Local / Offline Mode'}
-            </Text>
-          </View>
-        </View>
-
         {/* Search input field */}
         <View style={styles.searchSection}>
           <View style={[styles.searchContainer, { backgroundColor: theme.searchBg }]}>
@@ -267,31 +236,33 @@ export default function ListsScreen() {
         </View>
 
         {/* Horizontal tag filter pills */}
-        <View style={[styles.filterContainer, { backgroundColor: theme.filterBg }]}>
-          <FlatList
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            data={tags}
-            keyExtractor={(item) => item}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={[styles.chip, { backgroundColor: theme.chipBg }, selectedTag === item && styles.chipActive]}
-                onPress={() => setSelectedTag(item)}
-              >
-                <Text style={[styles.chipText, { color: theme.chipText }, selectedTag === item && styles.chipTextActive]}>
-                  {item}
-                </Text>
-              </TouchableOpacity>
-            )}
-          />
-        </View>
+        {tags.length > 1 && (
+          <View style={[styles.filterContainer, { backgroundColor: theme.filterBg }]}>
+            <FlatList
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              data={tags}
+              keyExtractor={(item) => item}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[styles.chip, { backgroundColor: theme.chipBg }, selectedTag === item && styles.chipActive]}
+                  onPress={() => setSelectedTag(item)}
+                >
+                  <Text style={[styles.chipText, { color: theme.chipText }, selectedTag === item && styles.chipTextActive]}>
+                    {item}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        )}
 
         {/* Main Content / Loading / Empty */}
         {isLoading && filteredLists.length === 0 ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#208AEF" />
             <Text style={[styles.loadingText, { color: theme.textSecondary }]}>
-              Connecting to Supabase DB...
+              Loading your lists...
             </Text>
           </View>
         ) : filteredLists.length === 0 ? (
@@ -301,8 +272,21 @@ export default function ListsScreen() {
               <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor="#208AEF" />
             }
           >
-            <Ionicons name="clipboard-outline" size={60} color={theme.textSecondary} />
-            <Text style={[styles.emptyText, { color: theme.textSecondary }]}>No lists found</Text>
+            <View style={styles.emptyIconCircle}>
+              <Ionicons
+                name={searchQuery.trim() ? 'search-outline' : 'clipboard-outline'}
+                size={48}
+                color={theme.textSecondary}
+              />
+            </View>
+            <Text style={[styles.emptyTitle, { color: theme.textPrimary }]}>
+              {searchQuery.trim() ? 'No matching lists' : 'No lists yet'}
+            </Text>
+            <Text style={[styles.emptySubtitle, { color: theme.textSecondary }]}>
+              {searchQuery.trim()
+                ? 'Try a different search term or clear the filter.'
+                : "Tap the '+' button at the bottom to create your first list."}
+            </Text>
           </ScrollView>
         ) : (
           /* Main list content */
@@ -350,32 +334,7 @@ export default function ListsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  statusBarContainer: {
-    paddingHorizontal: '4%',
-    paddingTop: 4,
-    paddingBottom: 2,
-    flexDirection: 'row',
-    justifyContent: 'flex-start',
-  },
-  statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 12,
-    backgroundColor: 'rgba(142, 142, 147, 0.12)',
-  },
-  statusDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-    marginRight: 6,
-  },
-  statusText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  searchSection: { paddingHorizontal: '4%', paddingTop: 6, paddingBottom: 4 },
+  searchSection: { paddingHorizontal: '4%', paddingTop: 10, paddingBottom: 4 },
   searchContainer: { flexDirection: 'row', alignItems: 'center', borderRadius: 10, paddingHorizontal: 10, height: 38 },
   searchIcon: { marginRight: 6 },
   searchInput: { flex: 1, fontSize: 15, paddingVertical: 0 },
@@ -405,6 +364,8 @@ const styles = StyleSheet.create({
   completedText: { textDecorationLine: 'line-through', opacity: 0.5 },
   loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   loadingText: { marginTop: 12, fontSize: 14, fontWeight: '500' },
-  emptyContainer: { alignItems: 'center', justifyContent: 'center', paddingTop: '20%' },
-  emptyText: { marginTop: 12, fontSize: 16 },
+  emptyContainer: { alignItems: 'center', justifyContent: 'center', paddingTop: '28%', paddingHorizontal: 24 },
+  emptyIconCircle: { marginBottom: 12, opacity: 0.6 },
+  emptyTitle: { fontSize: 18, fontWeight: '700', marginBottom: 6, textAlign: 'center' },
+  emptySubtitle: { fontSize: 14, textAlign: 'center', lineHeight: 20 }
 });

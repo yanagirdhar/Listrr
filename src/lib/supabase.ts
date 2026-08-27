@@ -45,34 +45,50 @@ function checkIsSupabaseConfigured(url: string, key: string): boolean {
     return false;
   }
 
-  // Supabase anon keys are JWTs composed of 3 base64 segments separated by dots
-  const segments = trimmedKey.split('.');
-  if (segments.length !== 3 || segments.some((s) => s.length === 0)) {
-    return false;
+  // Supabase keys can be classic JWTs (3 segments separated by dots) or modern publishable keys (starting with sb_publishable_)
+  if (trimmedKey.startsWith('sb_publishable_') && trimmedKey.length > 20) {
+    return true;
   }
 
-  return true;
+  const segments = trimmedKey.split('.');
+  if (segments.length === 3 && segments.every((s) => s.length > 0)) {
+    return true;
+  }
+
+  // Allow other non-placeholder keys of sufficient length
+  return trimmedKey.length >= 20;
 }
 
 export const isSupabaseConfigured = checkIsSupabaseConfigured(supabaseUrl, supabaseAnonKey);
 
 
 
-// Create Supabase client with custom storage engine for mobile/web cross-platform persistence
-export const supabase = createClient(
-  supabaseUrl || 'https://placeholder.supabase.co',
-  supabaseAnonKey || 'placeholder-key',
-  {
-    auth: {
-      storage: Platform.OS !== 'web' ? AsyncStorage : undefined,
-      autoRefreshToken: true,
-      persistSession: true,
-      detectSessionInUrl: false,
-    },
-    realtime: {
-      params: {
-        eventsPerSecond: 10,
+declare global {
+  // eslint-disable-next-line no-var
+  var __supabaseClientInstance: ReturnType<typeof createClient<any>> | undefined;
+}
+
+// Create Supabase client singleton with custom storage engine for mobile/web cross-platform persistence
+export const supabase =
+  globalThis.__supabaseClientInstance ||
+  createClient<any>(
+    supabaseUrl || 'https://placeholder.supabase.co',
+    supabaseAnonKey || 'placeholder-key',
+    {
+      auth: {
+        storage: Platform.OS !== 'web' ? AsyncStorage : undefined,
+        autoRefreshToken: true,
+        persistSession: true,
+        detectSessionInUrl: false,
       },
-    },
-  }
-);
+      realtime: {
+        params: {
+          eventsPerSecond: 10,
+        },
+      },
+    }
+  );
+
+if (process.env.NODE_ENV !== 'production') {
+  globalThis.__supabaseClientInstance = supabase;
+}

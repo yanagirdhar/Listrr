@@ -20,29 +20,35 @@ This guide walks you through setting up your **Supabase Database with Realtime s
 2. Click **New Project**, select your organization, enter a name (e.g., `listrr-db`), and set a strong database password.
 3. Choose your nearest region and click **Create new project**.
 
-### Step 2: Run the SQL Schema & Enable Realtime
+### Step 2: Run the SQL Schema & Enable Multi-Tenant Realtime
 1. In your Supabase project dashboard, open the **SQL Editor** tab on the left sidebar.
 2. Click **New query**.
 3. Open [`supabase/schema.sql`](./supabase/schema.sql) in this repository, copy all the SQL content, and paste it into the Supabase SQL editor.
 4. Click **Run** (or press `Ctrl+Enter`).
    - Enables `uuid-ossp` and `pgcrypto` extensions for reliable UUID generation.
-   - Creates the `lists` and `list_items` tables with `user_id` support.
-   - Sets up foreign keys with cascading deletes.
-   - Configures indexes and Row Level Security (RLS) policies for anon and authenticated roles.
-   - Adds the tables to `supabase_realtime` publication.
-   - Seeds sample starting lists into your database.
+   - Creates the `profiles` table to store user metadata and avatars.
+   - Creates the `lists` and `list_items` tables scoped to `user_id`.
+   - Sets up foreign keys with cascading deletes and updated_at triggers.
+   - Configures strict multi-tenant Row Level Security (RLS) policies (`auth.uid() = user_id`).
+   - Configures `REPLICA IDENTITY FULL` and adds tables to the `supabase_realtime` publication.
 
-### Step 3: Connect Supabase to the App
+### Step 3: Configure Instant Sign-Up (Disable Email Confirmation)
+To allow users to sign up and start using their private lists immediately without waiting for verification emails:
+1. In the Supabase dashboard, go to **Authentication** ➔ **Providers** ➔ **Email**.
+2. Under **Email Provider Settings**, turn **OFF** `Confirm email`.
+3. Click **Save**.
+
+### Step 4: Connect Supabase to the App
 1. In the Supabase dashboard, navigate to **Project Settings** (gear icon) ➔ **API**.
 2. Copy:
    - **Project URL** (e.g. `https://xyzcompany.supabase.co`)
-   - **Project API Keys** ➔ `anon` `public` key (starts with `ey...`)
+   - **Project API Keys** ➔ `anon` `public` key (e.g. starts with `ey...` or `sb_publishable_...`)
 3. Open or create the [`.env`](./.env) file in the root of your project:
    ```env
    EXPO_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
    EXPO_PUBLIC_SUPABASE_ANON_KEY=your-anon-public-key-here
    ```
-4. Save the file. When you start the app, it will connect automatically and stream live Realtime updates!
+4. Save the file. When you start the app, it connects automatically with isolated user accounts and live Realtime sync!
 
 ---
 

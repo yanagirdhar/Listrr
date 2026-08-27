@@ -6,25 +6,29 @@
 
 ## Features
 
+- **Multi-Tenant User Authentication**: Secure login and instant registration with username/email and password via Supabase Auth.
+- **Isolated User Workspaces**: Strict Row-Level Security (RLS) ensures every user only sees and modifies their own private lists and data.
+- **User Profiles & Avatars**: Customizable user profiles with avatar image uploads (< 500 KB limit enforced).
+- **Realtime Database Synchronization**: Instant bi-directional live sync powered by Supabase PostgreSQL Realtime channels.
 - **Multi-Format Lists**: Create and manage checklists, bulleted lists, and numbered lists.
 - **Fast Prefix Search**: In-memory Trie index (`ListSearchIndex`) supporting rapid search across titles, tags, and item contents.
 - **Drag & Drop Reordering**: Reorder pinned and unpinned lists using drag-and-drop capabilities.
 - **Archiving System**: Archive lists to clean up your main view while maintaining access via a dedicated archived route.
 - **Tagging & Filtering**: Categorize lists with custom tags and filter them instantly on the home screen.
-- **Pinning & Detail Views**: Pin high-priority lists to the top of your view and inspect/edit lists in full detail.
 - **Dynamic Dark Mode**: Automatic theme switcher with styled UI adjustments for status and navigation bars.
-- **Responsive Design**: Dynamic layouts scaling across small smartphones, foldables, and large screen devices.
+- **Responsive Design**: Dynamic layouts scaling across small smartphones, foldables, and desktop web.
 
 ---
 
 ## Tech Stack
 
-- **Framework**: React Native / Expo (SDK 52+)
+- **Framework**: React Native / Expo (SDK 57)
+- **Database & Auth**: Supabase PostgreSQL & Realtime with Row Level Security (RLS)
 - **Navigation**: Expo Router (File-based Routing)
 - **Icons**: `@expo/vector-icons` (Ionicons)
 - **Safe Area & Gestures**: `react-native-safe-area-context`, `react-native-gesture-handler`
-- **Interactivity**: `react-native-draggable-flatlist`, `expo-clipboard`
-- **State Management**: React Context API (`ListContext`)
+- **Interactivity & Media**: `react-native-draggable-flatlist`, `expo-image-picker`, `expo-clipboard`
+- **State Management**: React Context API (`AuthContext`, `ListContext`)
 
 ---
 
@@ -38,7 +42,7 @@ Ensure you have **Node.js** (v18+) and **npm** installed on your system.
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/YOUR-USERNAME/Listrr.git
+   git clone https://github.com/trynayash/Listrr.git
    cd Listrr
    ```
 
@@ -47,16 +51,25 @@ Ensure you have **Node.js** (v18+) and **npm** installed on your system.
    npm install
    ```
 
-3. **Start the Expo development server:**
+3. **Configure Environment Variables:**
+   Create a `.env` file in the root directory:
+   ```env
+   EXPO_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
+   EXPO_PUBLIC_SUPABASE_ANON_KEY=your-anon-public-key-here
+   ```
+
+4. **Start the Expo development server:**
    ```bash
    npx expo start -c
    ```
 
-4. **Run on a device or emulator:**
-   ```bash
-   Scan the QR code using the Expo Go app on Android or iOS.
-   Press a for Android Emulator or i for iOS Simulator.
-   ```
+5. **Run on a device or emulator:**
+   - Press `w` for Web Browser
+   - Press `a` for Android Emulator
+   - Press `i` for iOS Simulator
+   - Or scan the QR code using the **Expo Go** app
+
+---
 
 ### Project Structure
 ```
@@ -65,14 +78,20 @@ src/
 │   ├── (tabs)/          # Bottom tab navigation screens
 │   │   ├── _layout.tsx  # Tab bar setup and custom FAB
 │   │   ├── index.tsx    # "My Lists" screen (Active lists view)
-│   │   ├── create.tsx   # "Create/Edit List" form
-│   │   └── profile.tsx  # Profile, Statistics & Dark Mode settings
+│   │   ├── create.tsx   # "Create List" form
+│   │   ├── edit.tsx     # "Edit List" form
+│   │   ├── archived.tsx # Archived lists screen with filtering & search
+│   │   └── profile.tsx  # Profile, Avatar (<500KB), Statistics & Settings
 │   ├── list/
 │   │   └── [id].tsx     # List detail view (edit, copy, archive, delete)
-│   ├── archived.tsx     # Archived lists screen with filtering & search
-│   └── _layout.tsx      # Root Stack navigation and ListProvider setup
+│   └── _layout.tsx      # Root Stack navigation with Auth & List Providers
+├── components/
+│   └── AuthScreen.tsx   # Sign In & Create Account authentication UI
 ├── context/
-│   └── ListContext.tsx  # Global state manager for lists and theme
+│   ├── AuthContext.tsx  # Authentication & user profile state management
+│   └── ListContext.tsx  # Multi-tenant state manager for lists and theme
+├── lib/
+│   └── supabase.ts      # Cross-platform Supabase client singleton
 ├── types/
 │   └── list.ts          # TypeScript interfaces for lists and items
 └── utils/
