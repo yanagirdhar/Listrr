@@ -25,9 +25,10 @@ This guide walks you through setting up your **Supabase Database with Realtime s
 2. Click **New query**.
 3. Open [`supabase/schema.sql`](./supabase/schema.sql) in this repository, copy all the SQL content, and paste it into the Supabase SQL editor.
 4. Click **Run** (or press `Ctrl+Enter`).
-   - This creates the `lists` and `list_items` tables.
+   - Enables `uuid-ossp` and `pgcrypto` extensions for reliable UUID generation.
+   - Creates the `lists` and `list_items` tables with `user_id` support.
    - Sets up foreign keys with cascading deletes.
-   - Configures indexes and Row Level Security (RLS) policies.
+   - Configures indexes and Row Level Security (RLS) policies for anon and authenticated roles.
    - Adds the tables to `supabase_realtime` publication.
    - Seeds sample starting lists into your database.
 
