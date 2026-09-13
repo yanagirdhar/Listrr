@@ -2,8 +2,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState, useCallback, useMemo } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -116,12 +118,28 @@ const ListCard = React.memo(({
 });
 
 export default function ListsScreen() {
-  const router = useRouter();
-  const { lists, isDarkMode, togglePinList, toggleItemComplete, reorderLists } = useLists();
+    const router = useRouter();
+  const {
+    lists,
+    isLoading,
+    isDarkMode,
+    togglePinList,
+    toggleItemComplete,
+    reorderLists,
+    refreshLists,
+  } = useLists();
   
   // Tag and search filter state
   const [selectedTag, setSelectedTag] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+
+  // Pull-to-refresh handler — manually re-fetches from Supabase
+  const onRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    await refreshLists();
+    setIsRefreshing(false);
+  }, [refreshLists]);
 
   // Get active (non-archived) lists
   const unarchivedLists = useMemo(() => lists.filter((l) => !l.isArchived), [lists]);
@@ -237,15 +255,31 @@ export default function ListsScreen() {
           />
         </View>
 
-        {/* Empty state fallback */}
-        {filteredLists.length === 0 ? (
+                {/* Initial loading state (first fetch from Supabase, before any cached data exists) */}
+        {isLoading && filteredLists.length === 0 && lists.length === 0 ? (
           <View style={styles.emptyContainer}>
+            <ActivityIndicator size="large" color="#208AEF" />
+            <Text style={[styles.emptyText, { color: theme.textSecondary }]}>Loading your lists...</Text>
+          </View>
+        ) : filteredLists.length === 0 ? (
+          /* Empty state fallback — unchanged from original */
+          <ScrollView
+            contentContainerStyle={styles.emptyContainer}
+            refreshControl={
+              <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor="#208AEF" />
+            }
+          >
             <Ionicons name="clipboard-outline" size={60} color={theme.textSecondary} />
             <Text style={[styles.emptyText, { color: theme.textSecondary }]}>No lists found</Text>
-          </View>
+          </ScrollView>
         ) : (
           /* Main list content */
-          <ScrollView contentContainerStyle={styles.listContent}>
+          <ScrollView
+            contentContainerStyle={styles.listContent}
+            refreshControl={
+              <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor="#208AEF" />
+            }
+          >
             {/* Pinned lists section */}
             {pinnedLists.length > 0 && (
               <View style={styles.section}>

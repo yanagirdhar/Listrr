@@ -1,7 +1,9 @@
 import { Stack } from 'expo-router';
+import { AuthProvider, useAuth } from '../context/AuthContext';
 import { ListProvider, useLists } from '../context/ListContext';
 import { StatusBar } from 'expo-status-bar';
-import { LogBox } from 'react-native';
+import { LogBox, View, ActivityIndicator, StyleSheet } from 'react-native';
+import AuthScreen from '../components/AuthScreen';
 
 // Suppress legacy warning from third-party drag-and-drop dependency
 LogBox.ignoreLogs([
@@ -11,6 +13,29 @@ LogBox.ignoreLogs([
 // Main app content container wrapped inside the context provider
 function AppContent() {
   const { isDarkMode } = useLists();
+  const { user, isLoading: isAuthLoading } = useAuth();
+  const themeBg = isDarkMode ? '#121212' : '#FFFFFF';
+
+  // Auth session is still being restored from AsyncStorage — show a spinner
+  // instead of flashing the sign-in screen or the app content.
+  if (isAuthLoading) {
+    return (
+      <View style={[styles.loadingContainer, { backgroundColor: themeBg }]}>
+        <StatusBar style={isDarkMode ? 'light' : 'dark'} />
+        <ActivityIndicator size="large" color="#208AEF" />
+      </View>
+    );
+  }
+
+  // No authenticated user — show the sign in / sign up screen instead of the app.
+  if (!user) {
+    return (
+      <>
+        <StatusBar style={isDarkMode ? 'light' : 'dark'} />
+        <AuthScreen />
+      </>
+    );
+  }
 
   return (
     <>
@@ -43,11 +68,21 @@ function AppContent() {
   );
 }
 
-// Entry layout wrapping the entire app in the global list state provider
+// Entry layout wrapping the entire app in the Auth and global list state providers
 export default function RootLayout() {
   return (
-    <ListProvider>
-      <AppContent />
-    </ListProvider>
+    <AuthProvider>
+      <ListProvider>
+        <AppContent />
+      </ListProvider>
+    </AuthProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+});

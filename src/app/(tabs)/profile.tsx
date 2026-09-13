@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -7,14 +7,27 @@ import {
   Switch,
   TouchableOpacity,
   useWindowDimensions,
+  ActivityIndicator,
+  Alert,
+  Image,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 import { useLists } from '../../context/ListContext';
+import { useAuth } from '../../context/AuthContext';
+
+const MAX_AVATAR_SIZE_BYTES = 500 * 1024; // 500 KB limit
 
 export default function ProfileScreen() {
   const router = useRouter();
-  
+
+  // Real auth-backed identity + account actions
+  const { user, username, email, avatarUrl, signOut, updateAvatar, deleteAccount } = useAuth();
+  const [isUpdatingAvatar, setIsUpdatingAvatar] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+
   // Get lists state and dark mode handlers from context
   const { lists, isDarkMode, toggleDarkMode } = useLists();
   
@@ -42,6 +55,97 @@ export default function ProfileScreen() {
     divider: { backgroundColor: isDarkMode ? '#2C2C2E' : '#E5E5EA' },
   };
 
+  // Pick a new profile photo, enforce the 500KB limit, and hand it to Supabase
+  const handlePickAvatar = async () => {
+    setAvatarError(null);
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        const msg = 'Please grant photo library permissions to change your avatar.';
+        if (Platform.OS === 'web') alert(msg);
+        else Alert.alert('Permission Required', msg);
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.6,
+        base64: true,
+      });
+
+      if (result.canceled || !result.assets || result.assets.length === 0) return;
+
+      const selectedAsset = result.assets[0];
+      let estimatedSizeBytes = selectedAsset.fileSize || 0;
+      if (!estimatedSizeBytes && selectedAsset.base64) {
+        estimatedSizeBytes = Math.round(selectedAsset.base64.length * 0.75);
+      }
+
+      if (estimatedSizeBytes > MAX_AVATAR_SIZE_BYTES) {
+        const sizeInKb = (estimatedSizeBytes / 1024).toFixed(0);
+        const errorMsg = `Image size (${sizeInKb} KB) exceeds the 500 KB limit. Please choose a smaller image.`;
+        setAvatarError(errorMsg);
+        if (Platform.OS === 'web') alert(errorMsg);
+        else Alert.alert('Image Too Large', errorMsg);
+        return;
+      }
+
+      setIsUpdatingAvatar(true);
+      const dataUri = selectedAsset.base64
+        ? `data:image/jpeg;base64,${selectedAsset.base64}`
+        : selectedAsset.uri;
+
+      await updateAvatar(dataUri);
+    } catch (err: any) {
+      console.error('Error selecting avatar:', err);
+      setAvatarError(err.message || 'Failed to update profile picture.');
+    } finally {
+      setIsUpdatingAvatar(false);
+    }
+  };
+
+  // Remove the current profile photo
+  const handleRemoveAvatar = async () => {
+    setIsUpdatingAvatar(true);
+    try {
+      await updateAvatar(null);
+    } catch (err) {
+      console.warn('Error removing avatar:', err);
+    } finally {
+      setIsUpdatingAvatar(false);
+    }
+  };
+
+  // Cross-platform sign out confirmation
+  const handleSignOut = async () => {
+    if (Platform.OS === 'web') {
+      const confirmed = typeof window !== 'undefined' ? window.confirm('Are you sure you want to sign out?') : true;
+      if (confirmed) await signOut();
+    } else {
+      Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Sign Out', style: 'destructive', onPress: async () => await signOut() },
+      ]);
+    }
+  };
+
+  // Cross-platform account deletion confirmation
+  const handleDeleteAccount = async () => {
+    const message =
+      'Are you sure you want to delete your account? All your lists and account data will be permanently removed. This action cannot be undone.';
+    if (Platform.OS === 'web') {
+      const confirmed = typeof window !== 'undefined' ? window.confirm(message) : true;
+      if (confirmed) await deleteAccount();
+    } else {
+      Alert.alert('Delete Account', message, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: async () => await deleteAccount() },
+      ]);
+    }
+  };
+
   return (
     <ScrollView
       style={[styles.container, dynamicStyles.container]}
@@ -49,7 +153,7 @@ export default function ProfileScreen() {
     >
       {/* Profile avatar and user info */}
       <View style={styles.profileHeader}>
-        <View
+        <TouchableOpacity
           style={[
             styles.avatar,
             {
@@ -57,15 +161,46 @@ export default function ProfileScreen() {
               height: avatarSize,
               borderRadius: avatarSize / 2,
               backgroundColor: isDarkMode ? '#1A385C' : '#E6F4FE',
+              overflow: 'hidden',
             },
           ]}
+          onPress={handlePickAvatar}
+          disabled={isUpdatingAvatar}
+          activeOpacity={0.8}
         >
-          <Ionicons name="person" size={avatarSize * 0.5} color="#208AEF" />
-        </View>
-        <Text style={[styles.userName, dynamicStyles.textPrimary]}>Listrr User</Text>
+          {isUpdatingAvatar ? (
+            <ActivityIndicator size="small" color="#208AEF" />
+          ) : avatarUrl ? (
+            <Image
+              source={{ uri: avatarUrl }}
+              style={{ width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 }}
+            />
+          ) : (
+            <Ionicons name="person" size={avatarSize * 0.5} color="#208AEF" />
+          )}
+        </TouchableOpacity>
+        <Text style={[styles.userName, dynamicStyles.textPrimary]}>{username}</Text>
         <Text style={[styles.userEmail, dynamicStyles.textSecondary]}>
-          user@listrr.app
+          {email || 'Authenticated User'}
         </Text>
+
+        {/* Change / remove photo — minimal text links, same typography scale as the rest of the app */}
+        <View style={styles.avatarActionsRow}>
+          <TouchableOpacity onPress={handlePickAvatar} disabled={isUpdatingAvatar}>
+            <Text style={styles.avatarActionText}>Change Photo</Text>
+          </TouchableOpacity>
+          {avatarUrl && (
+            <>
+              <Text style={[styles.avatarActionDivider, dynamicStyles.textSecondary]}> • </Text>
+              <TouchableOpacity onPress={handleRemoveAvatar} disabled={isUpdatingAvatar}>
+                <Text style={[styles.avatarActionText, { color: '#FF3B30' }]}>Remove</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+        {avatarError && (
+          <Text style={styles.avatarErrorText}>{avatarError}</Text>
+        )}
       </View>
 
       {/* App preferences settings (Dark mode toggle) */}
@@ -91,6 +226,28 @@ export default function ProfileScreen() {
             thumbColor={isDarkMode ? '#FFFFFF' : '#F4F3F4'}
           />
         </View>
+      </View>
+
+      {/* Account actions — reuses the same card/settingRow pattern as everything else on this screen */}
+      <Text style={[styles.sectionTitle, dynamicStyles.textSecondary]}>
+        Account
+      </Text>
+      <View style={[styles.card, dynamicStyles.card]}>
+        <TouchableOpacity style={styles.settingRow} onPress={handleSignOut} activeOpacity={0.7}>
+          <View style={styles.settingLabelGroup}>
+            <Ionicons name="log-out-outline" size={20} color="#FF9500" />
+            <Text style={[styles.settingLabel, { color: '#FF9500' }]}>Sign Out</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color="#FF9500" />
+        </TouchableOpacity>
+        <View style={[styles.divider, dynamicStyles.divider]} />
+        <TouchableOpacity style={styles.settingRow} onPress={handleDeleteAccount} activeOpacity={0.7}>
+          <View style={styles.settingLabelGroup}>
+            <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+            <Text style={[styles.settingLabel, { color: '#FF3B30' }]}>Delete Account</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color="#FF3B30" />
+        </TouchableOpacity>
       </View>
 
       {/* Navigation link to view archived lists */}
@@ -177,6 +334,10 @@ const styles = StyleSheet.create({
   },
   userName: { fontSize: 20, fontWeight: 'bold' },
   userEmail: { fontSize: 14, marginTop: 2 },
+  avatarActionsRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
+  avatarActionText: { fontSize: 13, fontWeight: '600', color: '#208AEF' },
+  avatarActionDivider: { fontSize: 13 },
+  avatarErrorText: { fontSize: 12, color: '#FF3B30', marginTop: 6, textAlign: 'center' },
   sectionTitle: {
     fontSize: 14,
     fontWeight: '600',
