@@ -1,5 +1,6 @@
 -- ==============================================================================
 -- REVIEWER DEMO ACCOUNT & SEED DATA MIGRATION
+-- DO NOT USE THIS MIGRATION, Its relevant code has been moved to 20260914010000_demo_account_seed.sql
 -- ==============================================================================
 
 -- 1. Create a dedicated reviewer user in Supabase Auth

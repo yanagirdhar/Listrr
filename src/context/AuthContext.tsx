@@ -4,27 +4,16 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { decode as decodeBase64 } from 'base64-arraybuffer';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
-// Helper to normalize input into a valid email format for Supabase Auth
-export function normalizeAuthEmail(identifier: string): string {
-  const trimmed = identifier.trim().toLowerCase();
-  if (trimmed.includes('@')) {
-    return trimmed;
-  }
-  // Convert alphanumeric username to an internal auth email
-  const sanitized = trimmed.replace(/[^a-z0-9_.-]/g, '');
-  return `${sanitized || 'user'}@listrr.app`;
+// Helper to normalize a raw email input for Supabase Auth (trim + lowercase)
+export function normalizeAuthEmail(email: string): string {
+  return email.trim().toLowerCase();
 }
 
-// Helper to extract a display username from user metadata or email
+// Helper to derive a display name purely from the user's email — there is
+// no separate username field anywhere in auth, so this is just a friendly
+// capitalized version of the email's local part.
 export function getDisplayUsername(user: User | null): string {
   if (!user) return 'Guest';
-  const meta = user.user_metadata;
-  if (meta?.username && typeof meta.username === 'string' && meta.username.trim()) {
-    return meta.username.trim();
-  }
-  if (meta?.full_name && typeof meta.full_name === 'string' && meta.full_name.trim()) {
-    return meta.full_name.trim();
-  }
   if (user.email) {
     const prefix = user.email.split('@')[0];
     return prefix.charAt(0).toUpperCase() + prefix.slice(1);
@@ -61,8 +50,8 @@ export interface AuthContextType {
   avatarUrl: string | null;
   isLoading: boolean;
   isConfigured: boolean;
-  signIn: (identifier: string, password: string) => Promise<{ error: Error | null }>;
-  signUp: (identifier: string, password: string, usernameInput?: string) => Promise<{ error: Error | null }>;
+  signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
+  signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   updateAvatar: (avatar: AvatarUpload | null) => Promise<{ error: Error | null }>;
   deleteAccount: () => Promise<{ error: Error | null }>;
@@ -144,13 +133,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  // Sign In with email or username + password
-  const signIn = useCallback(async (identifier: string, password: string): Promise<{ error: Error | null }> => {
+  // Sign In with email + password
+  const signIn = useCallback(async (email: string, password: string): Promise<{ error: Error | null }> => {
     if (!isSupabaseConfigured) {
       return { error: new Error('Supabase database is not configured. Please check your .env file.') };
     }
 
-    const emailToUse = normalizeAuthEmail(identifier);
+    const emailToUse = normalizeAuthEmail(email);
 
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -173,27 +162,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Sign Up instantly without email confirmation delays
   const signUp = useCallback(async (
-    identifier: string,
-    password: string,
-    usernameInput?: string
+    email: string,
+    password: string
   ): Promise<{ error: Error | null }> => {
     if (!isSupabaseConfigured) {
       return { error: new Error('Supabase database is not configured. Please check your .env file.') };
     }
 
-    const emailToUse = normalizeAuthEmail(identifier);
-    const resolvedUsername = usernameInput?.trim() || identifier.trim().split('@')[0];
+    const emailToUse = normalizeAuthEmail(email);
 
     try {
       const { data, error } = await supabase.auth.signUp({
         email: emailToUse,
         password,
-        options: {
-          data: {
-            username: resolvedUsername,
-            full_name: resolvedUsername,
-          },
-        },
       });
 
       if (error) {

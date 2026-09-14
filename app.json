@@ -21,7 +21,10 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "output": "static",
@@ -58,8 +61,10 @@
     },
     "extra": {
       "eas": {
-        "projectId": "your-eas-project-id"
-      }
-    }
+        "projectId": "a5319248-ee29-4798-a20c-2a64abda3dec"
+      },
+      "router": {}
+    },
+    "owner": "yanagirdhar"
   }
 }

@@ -63,14 +63,6 @@ export default function ProfileScreen() {
   const handlePickAvatar = async () => {
     setAvatarError(null);
     try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        const msg = 'Please grant photo library permissions to change your avatar.';
-        if (Platform.OS === 'web') alert(msg);
-        else Alert.alert('Permission Required', msg);
-        return;
-      }
-
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsEditing: true,

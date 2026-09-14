@@ -21,7 +21,6 @@ export default function AuthScreen() {
   // 'signin' | 'signup' — same two-mode pattern as your existing chip filters
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
 
-  const [username, setUsername] = useState('');
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -52,7 +51,11 @@ export default function AuthScreen() {
     const cleanPassword = password.trim();
 
     if (!cleanIdentifier) {
-      setErrorMessage('Please enter your username or email');
+      setErrorMessage('Please enter your email');
+      return;
+    }
+    if (!cleanIdentifier.includes('@')) {
+      setErrorMessage('Please enter a valid email address');
       return;
     }
     if (!cleanPassword) {
@@ -72,10 +75,9 @@ export default function AuthScreen() {
     try {
       if (mode === 'signin') {
         const { error } = await signIn(cleanIdentifier, cleanPassword);
-        if (error) setErrorMessage(error.message || 'Invalid username/email or password');
+        if (error) setErrorMessage(error.message || 'Invalid email or password');
       } else {
-        const customUsername = username.trim() || cleanIdentifier.split('@')[0];
-        const { error } = await signUp(cleanIdentifier, cleanPassword, customUsername);
+        const { error } = await signUp(cleanIdentifier, cleanPassword);
         if (error) setErrorMessage(error.message || 'Failed to create account. Please try again.');
       }
     } catch (err: any) {
@@ -137,42 +139,24 @@ export default function AuthScreen() {
             </View>
           )}
 
-          {mode === 'signup' && (
-            <View style={styles.inputGroup}>
-              <Text style={[styles.inputLabel, dynamicStyles.textSecondary]}>Name / Username</Text>
-              <View style={[styles.inputBox, dynamicStyles.inputBg]}>
-                <Ionicons name="person-outline" size={18} color={dynamicStyles.textSecondary.color} style={styles.inputIcon} />
-                <TextInput
-                  style={[styles.textInput, dynamicStyles.textPrimary]}
-                  placeholder="e.g. Alex Morgan"
-                  placeholderTextColor={dynamicStyles.textSecondary.color}
-                  value={username}
-                  onChangeText={setUsername}
-                  autoCapitalize="words"
-                  autoCorrect={false}
-                  returnKeyType="next"
-                />
-              </View>
-            </View>
-          )}
-
           <View style={styles.inputGroup}>
-            <Text style={[styles.inputLabel, dynamicStyles.textSecondary]}>Username or Email</Text>
+            <Text style={[styles.inputLabel, dynamicStyles.textSecondary]}>Email</Text>
             <View style={[styles.inputBox, dynamicStyles.inputBg]}>
               <Ionicons
-                name={identifier.includes('@') ? 'mail-outline' : 'at-outline'}
+                name="mail-outline"
                 size={18}
                 color={dynamicStyles.textSecondary.color}
                 style={styles.inputIcon}
               />
               <TextInput
                 style={[styles.textInput, dynamicStyles.textPrimary]}
-                placeholder={mode === 'signup' ? 'username or you@email.com' : 'Your username or email'}
+                placeholder="you@email.com"
                 placeholderTextColor={dynamicStyles.textSecondary.color}
                 value={identifier}
                 onChangeText={setIdentifier}
                 autoCapitalize="none"
                 autoCorrect={false}
+                keyboardType="email-address"
                 returnKeyType="next"
               />
             </View>

@@ -32,8 +32,8 @@ BEGIN
   INSERT INTO public.profiles (id, username, full_name, email, avatar_url)
   VALUES (
     NEW.id,
-    COALESCE(NEW.raw_user_meta_data->>'username', split_part(NEW.email, '@', 1)),
-    COALESCE(NEW.raw_user_meta_data->>'full_name', split_part(NEW.email, '@', 1)),
+    split_part(NEW.email, '@', 1),
+    split_part(NEW.email, '@', 1),
     NEW.email,
     NEW.raw_user_meta_data->>'avatar_url'
   )
@@ -55,8 +55,8 @@ EXECUTE FUNCTION public.handle_new_user();
 INSERT INTO public.profiles (id, username, full_name, email, avatar_url)
 SELECT 
   id, 
-  COALESCE(raw_user_meta_data->>'username', split_part(email, '@', 1)),
-  COALESCE(raw_user_meta_data->>'full_name', split_part(email, '@', 1)),
+  split_part(email, '@', 1),
+  split_part(email, '@', 1),
   email,
   raw_user_meta_data->>'avatar_url'
 FROM auth.users

@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,9 +10,15 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useLists } from '../../context/ListContext';
 import { ListType, ListItem } from '../../types/list';
+
+const createBlankItem = (): ListItem => ({
+  id: Date.now().toString(),
+  text: '',
+  isCompleted: false,
+});
 
 export default function CreateScreen() {
   const router = useRouter();
@@ -23,12 +29,23 @@ export default function CreateScreen() {
   const [tag, setTag] = useState('');
   const [type, setType] = useState<ListType>('checklist');
   const [items, setItems] = useState<ListItem[]>([
-    { id: Date.now().toString(), text: '', isCompleted: false },
+    createBlankItem(),
   ]);
 
   // Refs for tracking input focus and scroll position
   const inputsRef = useRef<{ [key: string]: TextInput | null }>({});
   const scrollViewRef = useRef<ScrollView | null>(null);
+
+  // Reset the form every time the Create tab becomes focused
+  useFocusEffect(
+    useCallback(() => {
+      setTitle('');
+      setTag('');
+      setType('checklist');
+      setItems([createBlankItem()]);
+      inputsRef.current = {};
+    }, [])
+  );
 
   // Theme styles
   const theme = {
