@@ -29,7 +29,7 @@ VALUES (
     NOW(),
     NOW(),
     '{"provider":"email","providers":["email"]}',
-    '{"username": "PlayStore Reviewer", "avatar_url": ""}',
+    '{"username": "PlayStore Reviewer", "avatar_url": "https://ui-avatars.com/api/?name=PR&background=208AEF&color=fff&size=256"}',
     NOW(),
     NOW(),
     '',
@@ -39,15 +39,21 @@ VALUES (
 ) ON CONFLICT (id) DO NOTHING;
 
 -- 2. Ensure a corresponding profile exists in public.profiles
+-- Play Store review requirement (§1.2): the demo account must have "an
+-- avatar set" so the reviewer can confirm the avatar feature actually
+-- works — this uses a stable hosted placeholder rather than a real
+-- Storage upload, since seed migrations can't easily write binary
+-- objects into the 'avatars' bucket.
 INSERT INTO public.profiles (id, username, full_name, email, avatar_url)
 VALUES (
     'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
     'PlayStore Reviewer',
     'PlayStore Reviewer',
     'reviewer@listrr.app',
-    ''
+    'https://ui-avatars.com/api/?name=PR&background=208AEF&color=fff&size=256'
 )
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT (id) DO UPDATE SET
+    avatar_url = EXCLUDED.avatar_url;
 
 -- 3. Seed 5 Rich Lists (Idempotent: clear existing demo lists first)
 DELETE FROM public.lists WHERE user_id = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
@@ -118,7 +124,9 @@ SELECT id, text, is_completed, position FROM l3, (VALUES
     ('Atomic Habits - James Clear', true, 3)
 ) AS items(text, is_completed, position);
 
--- List 4: Bulleted Startup Ideas
+-- List 4: Bulleted Startup Ideas (archived — Play Store review requirement
+-- §1.2 wants 2–3 of the demo account's lists archived, so the reviewer can
+-- find the Archive tab without creating and archiving one themselves)
 WITH l4 AS (
     INSERT INTO public.lists (user_id, title, type, tag, is_pinned, is_archived, position)
     VALUES (
@@ -127,7 +135,7 @@ WITH l4 AS (
         'bulleted',
         'Work',
         false,
-        false,
+        true,
         3
     ) RETURNING id
 )
@@ -139,7 +147,7 @@ SELECT id, text, is_completed, position FROM l4, (VALUES
     ('Design dark mode OLED pure black theme variant', true, 3)
 ) AS items(text, is_completed, position);
 
--- List 5: Movie Watchlist
+-- List 5: Movie Watchlist (archived — see note on List 4 above)
 WITH l5 AS (
     INSERT INTO public.lists (user_id, title, type, tag, is_pinned, is_archived, position)
     VALUES (
@@ -148,7 +156,7 @@ WITH l5 AS (
         'checklist',
         'Entertainment',
         false,
-        false,
+        true,
         4
     ) RETURNING id
 )

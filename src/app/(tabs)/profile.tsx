@@ -17,17 +17,16 @@ import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { useLists } from '../../context/ListContext';
 import { useAuth } from '../../context/AuthContext';
-import { supabase } from '../../lib/supabase';
 
 // Matches the 'avatars' Storage bucket's file_size_limit (204800 bytes) set
-// in supabase/migrations/20260914000000_backend_hardening.sql — keep these two in sync.
+// in supabase/schema.sql (section 6) — keep these two in sync.
 const MAX_AVATAR_SIZE_BYTES = 200 * 1024; // 200 KB limit
 
 export default function ProfileScreen() {
   const router = useRouter();
 
   // Real auth-backed identity + account actions
-  const { user, username, email, avatarUrl, signOut, updateAvatar } = useAuth();
+  const { user, username, email, avatarUrl, signOut, updateAvatar, deleteAccount } = useAuth();
   const [isUpdatingAvatar, setIsUpdatingAvatar] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -144,43 +143,35 @@ export default function ProfileScreen() {
     }
   };
 
-  // Cross-platform account deletion confirmation invoking Supabase edge function
+  // Cross-platform account deletion confirmation. Delegates to
+  // AuthContext.deleteAccount(), which calls the server-side 'delete-account'
+  // Edge Function (service-role key stays server-side) and also clears this
+  // user's locally cached list data — doing both here inline previously
+  // meant the AsyncStorage cache for the deleted account was never cleared.
   const handleDeleteAccount = async () => {
     const message = 'This will permanently delete your account, lists, and uploaded avatar. This action cannot be undone.';
-    
+
+    const performDelete = async () => {
+      try {
+        setDeleting(true);
+        const { error } = await deleteAccount();
+        if (error) throw error;
+      } catch (err: any) {
+        const errorMsg = err.message || 'Failed to delete account.';
+        if (Platform.OS === 'web') alert(errorMsg);
+        else Alert.alert('Error', errorMsg);
+      } finally {
+        setDeleting(false);
+      }
+    };
+
     if (Platform.OS === 'web') {
       const confirmed = typeof window !== 'undefined' ? window.confirm(message) : true;
-      if (confirmed) {
-        try {
-          setDeleting(true);
-          const { error } = await supabase.functions.invoke('delete-account');
-          if (error) throw error;
-          await signOut();
-        } catch (err: any) {
-          alert(err.message || 'Failed to delete account.');
-        } finally {
-          setDeleting(false);
-        }
-      }
+      if (confirmed) await performDelete();
     } else {
       Alert.alert('Delete Account', message, [
         { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setDeleting(true);
-              const { error } = await supabase.functions.invoke('delete-account');
-              if (error) throw error;
-              await signOut();
-            } catch (err: any) {
-              Alert.alert('Error', err.message || 'Failed to delete account.');
-            } finally {
-              setDeleting(false);
-            }
-          },
-        },
+        { text: 'Delete', style: 'destructive', onPress: performDelete },
       ]);
     }
   };

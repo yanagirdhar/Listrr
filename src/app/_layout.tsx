@@ -5,6 +5,7 @@ import { ListProvider, useLists } from '../context/ListContext';
 import { StatusBar } from 'expo-status-bar';
 import { LogBox, View, ActivityIndicator, StyleSheet } from 'react-native';
 import AuthScreen from '../components/AuthScreen';
+import ErrorBoundary from '../components/ErrorBoundary';
 
 // Crash reporting configuration
 Sentry.init({
@@ -25,21 +26,6 @@ Sentry.init({
   // uncomment the line below to enable Spotlight (https://spotlightjs.com)
   // spotlight: __DEV__,
 });
-
-function RootLayout() {
-  return (
-    <AuthProvider>
-      <ListProvider>
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="list/[id]" />
-        </Stack>
-      </ListProvider>
-    </AuthProvider>
-  );
-}
-
-export default Sentry.wrap(RootLayout);
 
 // Suppress legacy warning from third-party drag-and-drop dependency
 LogBox.ignoreLogs([
@@ -103,6 +89,25 @@ function AppContent() {
     </>
   );
 }
+
+// Root component actually rendered by Expo Router. This is what must decide
+// between the loading spinner, the auth wall, and the real app — that
+// decision lives in AppContent above, so RootLayout's only job is to mount
+// the providers (in the right order: ListProvider reads useAuth, so it has
+// to sit inside AuthProvider) and render AppContent inside them.
+function RootLayout() {
+  return (
+    <ErrorBoundary>
+      <AuthProvider>
+        <ListProvider>
+          <AppContent />
+        </ListProvider>
+      </AuthProvider>
+    </ErrorBoundary>
+  );
+}
+
+export default Sentry.wrap(RootLayout);
 
 const styles = StyleSheet.create({
   loadingContainer: {
