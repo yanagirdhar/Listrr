@@ -218,7 +218,7 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error('Error fetching user data from Supabase:', err);
       setSyncStatus('error');
       if (err?.code === '42703' || String(err?.message).includes('lists.user_id does not exist')) {
-        setErrorMessage('Database migration required: Please run supabase/schema.sql in your Supabase SQL editor.');
+        setErrorMessage('Database migration required: Please run the latest migrations in supabase/migrations in your Supabase SQL editor.');
       } else {
         setErrorMessage(err.message || 'Failed to fetch your lists from database');
       }
@@ -252,8 +252,13 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!isSupabaseConfigured) return;
 
     // Subscribe to realtime database changes for authenticated user workspace:
-    // 1. lists table changes are filtered by user_id at the Postgres subscription level
-    // 2. list_items changes trigger a secure user-scoped fetchListsFromDB() query protected by RLS
+    // Both the 'lists' and 'list_items' subscriptions are filtered by
+    // user_id at the Postgres subscription level (list_items.user_id is
+    // denormalized from its parent list — see the backend_hardening
+    // migration — specifically so this filter is possible). Without this
+    // filter, every client would receive a change notification for every
+    // OTHER user's item edits anywhere in the database, triggering a
+    // needless refetch on every keystroke, app-wide.
     const channel = supabase
       .channel(`realtime_user_workspace_${currentUserId}`)
       .on(
@@ -274,6 +279,7 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
           event: '*',
           schema: 'public',
           table: 'list_items',
+          filter: `user_id=eq.${currentUserId}`,
         },
         () => {
           fetchListsFromDB(false);
@@ -361,7 +367,10 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (listError) throw listError;
 
-      // 2. Insert items with explicit UUIDs
+      // 2. Insert items with explicit UUIDs. user_id is auto-populated
+      //    server-side by the set_list_items_user_id trigger from the
+      //    parent list, so it doesn't need to be (and can't safely be)
+      //    trusted from the client.
       if (optimisticItems.length > 0) {
         const itemsToInsert = optimisticItems.map((item) => ({
           id: item.id,

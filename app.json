@@ -8,11 +8,15 @@
     "scheme": "listrr",
     "userInterfaceStyle": "automatic",
     "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.listrr.app",
       "icon": "./assets/expo.icon"
     },
     "android": {
+      "package": "com.listrr.app",
+      "versionCode": 1,
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#ffffff",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -23,7 +27,7 @@
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
-        "plugins": [
+    "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
@@ -36,13 +40,26 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Listrr needs access to your photos to allow uploading custom profile pictures."
+          "photosPermission": false
+        }
+      ],
+      [
+        "@sentry/react-native/expo",
+        {
+          "url": "https://sentry.io/",
+          "project": "listrr",
+          "organization": "kamalo-3w"
         }
       ]
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "your-eas-project-id"
+      }
     }
   }
 }

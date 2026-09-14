@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { User, Session } from '@supabase/supabase-js';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { decode as decodeBase64 } from 'base64-arraybuffer';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 // Helper to normalize input into a valid email format for Supabase Auth
@@ -30,6 +32,27 @@ export function getDisplayUsername(user: User | null): string {
   return 'User';
 }
 
+// Payload handed to updateAvatar when setting a new photo. Pass null to remove.
+export interface AvatarUpload {
+  base64: string;
+  mimeType?: string;
+}
+
+const AVATAR_BUCKET = 'avatars';
+
+// Map a mime type to a file extension for the storage object path
+function extensionForMimeType(mimeType?: string): string {
+  switch (mimeType) {
+    case 'image/png':
+      return 'png';
+    case 'image/webp':
+      return 'webp';
+    case 'image/jpeg':
+    default:
+      return 'jpg';
+  }
+}
+
 export interface AuthContextType {
   user: User | null;
   session: Session | null;
@@ -41,7 +64,7 @@ export interface AuthContextType {
   signIn: (identifier: string, password: string) => Promise<{ error: Error | null }>;
   signUp: (identifier: string, password: string, usernameInput?: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
-  updateAvatar: (base64OrUrl: string | null) => Promise<{ error: Error | null }>;
+  updateAvatar: (avatar: AvatarUpload | null) => Promise<{ error: Error | null }>;
   deleteAccount: () => Promise<{ error: Error | null }>;
 }
 
@@ -211,18 +234,51 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  // Update Profile Picture Avatar
-  const updateAvatar = useCallback(async (newAvatar: string | null): Promise<{ error: Error | null }> => {
-    setAvatarUrl(newAvatar);
-
+  // Update Profile Picture Avatar — uploads to the 'avatars' Storage bucket
+  // and stores only the resulting public URL (never the raw image bytes) in
+  // auth metadata / the profiles table.
+  const updateAvatar = useCallback(async (avatar: AvatarUpload | null): Promise<{ error: Error | null }> => {
     if (!isSupabaseConfigured || !user) {
+      setAvatarUrl(avatar ? `data:${avatar.mimeType || 'image/jpeg'};base64,${avatar.base64}` : null);
       return { error: null };
     }
 
     try {
-      // 1. Update user metadata in Supabase Auth
+      let newAvatarUrl: string | null = null;
+
+      if (avatar) {
+        const ext = extensionForMimeType(avatar.mimeType);
+        const path = `${user.id}/avatar.${ext}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from(AVATAR_BUCKET)
+          .upload(path, decodeBase64(avatar.base64), {
+            contentType: avatar.mimeType || 'image/jpeg',
+            upsert: true,
+          });
+
+        if (uploadError) {
+          throw uploadError;
+        }
+
+        const { data: publicUrlData } = supabase.storage.from(AVATAR_BUCKET).getPublicUrl(path);
+        // Cache-bust so <Image> picks up the new file even though the path
+        // (and therefore the CDN-cached URL) stays the same after upsert.
+        newAvatarUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
+      } else {
+        // Remove any existing avatar files for this user from Storage.
+        const { data: files } = await supabase.storage.from(AVATAR_BUCKET).list(user.id);
+        if (files && files.length > 0) {
+          const paths = files.map((f) => `${user.id}/${f.name}`);
+          await supabase.storage.from(AVATAR_BUCKET).remove(paths);
+        }
+      }
+
+      setAvatarUrl(newAvatarUrl);
+
+      // Sync the (small) URL — never the image itself — to auth metadata
       const { data: updateData, error: updateError } = await supabase.auth.updateUser({
-        data: { avatar_url: newAvatar },
+        data: { avatar_url: newAvatarUrl },
       });
 
       if (updateError) {
@@ -231,17 +287,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(updateData.user);
       }
 
-      // 2. Sync to profiles table
+      // Sync to profiles table
       const { error: profileError } = await supabase
         .from('profiles')
         .upsert({
           id: user.id,
-          avatar_url: newAvatar,
+          avatar_url: newAvatarUrl,
           updated_at: new Date().toISOString(),
         });
 
       if (profileError) {
-        console.warn('Note: profiles table update failed (may not be migrated yet):', profileError.message);
+        console.warn('Note: profiles table update failed:', profileError.message);
       }
 
       return { error: null };
@@ -266,7 +322,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  // Delete Account completely (Lists, Profiles, Local Cache) - Apple Guideline 5.1.1(v)
+  // Delete Account completely — calls the server-side 'delete-account' Edge
+  // Function (service-role key required, so this can never happen purely
+  // client-side) which removes the Storage avatar, app data, and the actual
+  // Supabase Auth user itself.
   const deleteAccount = useCallback(async (): Promise<{ error: Error | null }> => {
     if (!user) return { error: null };
 
@@ -274,30 +333,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     try {
       if (isSupabaseConfigured) {
-        // 1. Delete all user lists (cascade deletes list_items)
-        await supabase.from('lists').delete().eq('user_id', userId);
-
-        // 2. Delete user profile
-        await supabase.from('profiles').delete().eq('id', userId);
+        const { error: fnError } = await supabase.functions.invoke('delete-account');
+        if (fnError) {
+          throw fnError;
+        }
       }
 
-      // 3. Clear cached storage
+      // Clear cached local storage for this user
       try {
-        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
         await AsyncStorage.removeItem(`@listrr_cached_lists_v2_${userId}`);
       } catch (storageErr) {
         console.warn('Failed to clear cached storage on account deletion:', storageErr);
       }
 
-      // 4. Sign out
-      await signOut();
+      // The auth user (and its session) no longer exists server-side at this
+      // point — just clear local client state rather than calling signOut(),
+      // which would try to revoke a session that's already gone.
+      setUser(null);
+      setSession(null);
+      setAvatarUrl(null);
 
       return { error: null };
     } catch (err: any) {
       console.error('Error during account deletion:', err);
       return { error: err instanceof Error ? err : new Error(String(err)) };
     }
-  }, [user, signOut]);
+  }, [user]);
 
   const currentUsername = getDisplayUsername(user);
   const currentEmail = user?.email || null;

@@ -1,9 +1,45 @@
 import { Stack } from 'expo-router';
+import * as Sentry from '@sentry/react-native';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { ListProvider, useLists } from '../context/ListContext';
 import { StatusBar } from 'expo-status-bar';
 import { LogBox, View, ActivityIndicator, StyleSheet } from 'react-native';
 import AuthScreen from '../components/AuthScreen';
+
+// Crash reporting configuration
+Sentry.init({
+  dsn: process.env.EXPO_PUBLIC_SENTRY_DSN,
+
+  // Adds more context data to events (IP address, cookies, user, etc.)
+  // For more information, visit: https://docs.sentry.io/platforms/react-native/data-management/data-collected/
+  sendDefaultPii: true,
+
+  // Enable Logs
+  enableLogs: true,
+
+  // Configure Session Replay
+  replaysSessionSampleRate: 0.1,
+  replaysOnErrorSampleRate: 1,
+  integrations: [Sentry.mobileReplayIntegration(), Sentry.feedbackIntegration()],
+
+  // uncomment the line below to enable Spotlight (https://spotlightjs.com)
+  // spotlight: __DEV__,
+});
+
+function RootLayout() {
+  return (
+    <AuthProvider>
+      <ListProvider>
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="list/[id]" />
+        </Stack>
+      </ListProvider>
+    </AuthProvider>
+  );
+}
+
+export default Sentry.wrap(RootLayout);
 
 // Suppress legacy warning from third-party drag-and-drop dependency
 LogBox.ignoreLogs([
@@ -65,17 +101,6 @@ function AppContent() {
         />
       </Stack>
     </>
-  );
-}
-
-// Entry layout wrapping the entire app in the Auth and global list state providers
-export default function RootLayout() {
-  return (
-    <AuthProvider>
-      <ListProvider>
-        <AppContent />
-      </ListProvider>
-    </AuthProvider>
   );
 }
 

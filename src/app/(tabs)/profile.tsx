@@ -17,16 +17,20 @@ import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { useLists } from '../../context/ListContext';
 import { useAuth } from '../../context/AuthContext';
+import { supabase } from '../../lib/supabase';
 
-const MAX_AVATAR_SIZE_BYTES = 500 * 1024; // 500 KB limit
+// Matches the 'avatars' Storage bucket's file_size_limit (204800 bytes) set
+// in supabase/migrations/20260914000000_backend_hardening.sql — keep these two in sync.
+const MAX_AVATAR_SIZE_BYTES = 200 * 1024; // 200 KB limit
 
 export default function ProfileScreen() {
   const router = useRouter();
 
   // Real auth-backed identity + account actions
-  const { user, username, email, avatarUrl, signOut, updateAvatar, deleteAccount } = useAuth();
+  const { user, username, email, avatarUrl, signOut, updateAvatar } = useAuth();
   const [isUpdatingAvatar, setIsUpdatingAvatar] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Get lists state and dark mode handlers from context
   const { lists, isDarkMode, toggleDarkMode } = useLists();
@@ -55,7 +59,8 @@ export default function ProfileScreen() {
     divider: { backgroundColor: isDarkMode ? '#2C2C2E' : '#E5E5EA' },
   };
 
-  // Pick a new profile photo, enforce the 500KB limit, and hand it to Supabase
+  // Pick a new profile photo, enforce the 200KB limit, and hand it to
+  // AuthContext to upload to Supabase Storage (see updateAvatar).
   const handlePickAvatar = async () => {
     setAvatarError(null);
     try {
@@ -85,19 +90,27 @@ export default function ProfileScreen() {
 
       if (estimatedSizeBytes > MAX_AVATAR_SIZE_BYTES) {
         const sizeInKb = (estimatedSizeBytes / 1024).toFixed(0);
-        const errorMsg = `Image size (${sizeInKb} KB) exceeds the 500 KB limit. Please choose a smaller image.`;
+        const errorMsg = `Image size (${sizeInKb} KB) exceeds the 200 KB limit. Please choose a smaller image.`;
         setAvatarError(errorMsg);
         if (Platform.OS === 'web') alert(errorMsg);
         else Alert.alert('Image Too Large', errorMsg);
         return;
       }
 
-      setIsUpdatingAvatar(true);
-      const dataUri = selectedAsset.base64
-        ? `data:image/jpeg;base64,${selectedAsset.base64}`
-        : selectedAsset.uri;
+      if (!selectedAsset.base64) {
+        const errorMsg = 'Could not read the selected image. Please try a different photo.';
+        setAvatarError(errorMsg);
+        return;
+      }
 
-      await updateAvatar(dataUri);
+      setIsUpdatingAvatar(true);
+      const { error } = await updateAvatar({
+        base64: selectedAsset.base64,
+        mimeType: selectedAsset.mimeType || 'image/jpeg',
+      });
+      if (error) {
+        setAvatarError(error.message || 'Failed to update profile picture.');
+      }
     } catch (err: any) {
       console.error('Error selecting avatar:', err);
       setAvatarError(err.message || 'Failed to update profile picture.');
@@ -131,17 +144,43 @@ export default function ProfileScreen() {
     }
   };
 
-  // Cross-platform account deletion confirmation
+  // Cross-platform account deletion confirmation invoking Supabase edge function
   const handleDeleteAccount = async () => {
-    const message =
-      'Are you sure you want to delete your account? All your lists and account data will be permanently removed. This action cannot be undone.';
+    const message = 'This will permanently delete your account, lists, and uploaded avatar. This action cannot be undone.';
+    
     if (Platform.OS === 'web') {
       const confirmed = typeof window !== 'undefined' ? window.confirm(message) : true;
-      if (confirmed) await deleteAccount();
+      if (confirmed) {
+        try {
+          setDeleting(true);
+          const { error } = await supabase.functions.invoke('delete-account');
+          if (error) throw error;
+          await signOut();
+        } catch (err: any) {
+          alert(err.message || 'Failed to delete account.');
+        } finally {
+          setDeleting(false);
+        }
+      }
     } else {
       Alert.alert('Delete Account', message, [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: async () => await deleteAccount() },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setDeleting(true);
+              const { error } = await supabase.functions.invoke('delete-account');
+              if (error) throw error;
+              await signOut();
+            } catch (err: any) {
+              Alert.alert('Error', err.message || 'Failed to delete account.');
+            } finally {
+              setDeleting(false);
+            }
+          },
+        },
       ]);
     }
   };
@@ -241,12 +280,21 @@ export default function ProfileScreen() {
           <Ionicons name="chevron-forward" size={20} color="#FF9500" />
         </TouchableOpacity>
         <View style={[styles.divider, dynamicStyles.divider]} />
-        <TouchableOpacity style={styles.settingRow} onPress={handleDeleteAccount} activeOpacity={0.7}>
+        <TouchableOpacity 
+          style={styles.settingRow} 
+          onPress={handleDeleteAccount} 
+          disabled={deleting}
+          activeOpacity={0.7}
+        >
           <View style={styles.settingLabelGroup}>
             <Ionicons name="trash-outline" size={20} color="#FF3B30" />
             <Text style={[styles.settingLabel, { color: '#FF3B30' }]}>Delete Account</Text>
           </View>
-          <Ionicons name="chevron-forward" size={20} color="#FF3B30" />
+          {deleting ? (
+            <ActivityIndicator size="small" color="#FF3B30" />
+          ) : (
+            <Ionicons name="chevron-forward" size={20} color="#FF3B30" />
+          )}
         </TouchableOpacity>
       </View>
 
