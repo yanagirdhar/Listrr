@@ -23,7 +23,7 @@
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
-    "plugins": [
+        "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
@@ -36,26 +36,7 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": false
-        }
-      ],
-      [
-        "expo-build-properties",
-        {
-          "android": {
-            "targetSdkVersion": 36,
-            "compileSdkVersion": 36,
-            "minSdkVersion": 24
-          }
-        }
-      ],
-      "./plugins/withNoAdId",
-      [
-        "@sentry/react-native/expo",
-        {
-          "organization": "kamalo",
-          "project": "listrr",
-          "url": "https://sentry.io/"
+          "photosPermission": "Listrr needs access to your photos to allow uploading custom profile pictures."
         }
       ]
     ],

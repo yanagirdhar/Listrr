@@ -59,9 +59,14 @@ export default function ProfileScreen() {
   const handlePickAvatar = async () => {
     setAvatarError(null);
     try {
-      // With `photosPermission: false` in app.json, Android uses the system
-      // Photo Picker and iOS uses PHPickerViewController — neither needs a
-      // runtime permission grant, so we launch the picker directly.
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        const msg = 'Please grant photo library permissions to change your avatar.';
+        if (Platform.OS === 'web') alert(msg);
+        else Alert.alert('Permission Required', msg);
+        return;
+      }
+
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsEditing: true,
@@ -80,7 +85,7 @@ export default function ProfileScreen() {
 
       if (estimatedSizeBytes > MAX_AVATAR_SIZE_BYTES) {
         const sizeInKb = (estimatedSizeBytes / 1024).toFixed(0);
-        const errorMsg = `Image size (${sizeInKb} KB) exceeds the 200 KB limit. Please choose a smaller image.`;
+        const errorMsg = `Image size (${sizeInKb} KB) exceeds the 500 KB limit. Please choose a smaller image.`;
         setAvatarError(errorMsg);
         if (Platform.OS === 'web') alert(errorMsg);
         else Alert.alert('Image Too Large', errorMsg);
