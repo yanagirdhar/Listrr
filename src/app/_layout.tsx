@@ -4,6 +4,11 @@ import { ListProvider, useLists } from '../context/ListContext';
 import { StatusBar } from 'expo-status-bar';
 import { LogBox, View, ActivityIndicator, StyleSheet } from 'react-native';
 import AuthScreen from '../components/AuthScreen';
+import * as Sentry from '@sentry/react-native';
+import { ErrorBoundary } from '../components/ErrorBoundary';
+import { initSentry } from '../lib/sentry';
+
+initSentry();
 
 // Suppress legacy warning from third-party drag-and-drop dependency
 LogBox.ignoreLogs([
@@ -41,7 +46,7 @@ function AppContent() {
     <>
       {/* Dynamic status bar style based on dark mode setting */}
       <StatusBar style={isDarkMode ? 'light' : 'dark'} />
-      
+
       {/* Root navigation stack router */}
       <Stack
         screenOptions={{
@@ -51,7 +56,7 @@ function AppContent() {
       >
         {/* Main tab navigator route */}
         <Stack.Screen name="(tabs)" />
-        
+
         {/* Dynamic list detail modal/screen route */}
         <Stack.Screen
           name="list/[id]"
@@ -69,15 +74,19 @@ function AppContent() {
 }
 
 // Entry layout wrapping the entire app in the Auth and global list state providers
-export default function RootLayout() {
+function RootLayout() {
   return (
-    <AuthProvider>
-      <ListProvider>
-        <AppContent />
-      </ListProvider>
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <ListProvider>
+          <AppContent />
+        </ListProvider>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }
+
+export default Sentry.wrap(RootLayout);
 
 const styles = StyleSheet.create({
   loadingContainer: {

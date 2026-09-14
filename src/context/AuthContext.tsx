@@ -68,6 +68,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
+  // `profiles.avatar_url` is the enforced source of truth for the avatar
+  // (it has a server-side CHECK constraint limiting it to ~200KB — see
+  // supabase/migrations). We no longer read/write avatar data through
+  // `auth.users.user_metadata`, since that table is managed by Supabase
+  // Auth and can't carry a size constraint.
+  const fetchAvatarUrl = useCallback(async (userId: string): Promise<string | null> => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('avatar_url')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (error) {
+        console.warn('Failed to load profile avatar:', error.message);
+        return null;
+      }
+      return data?.avatar_url ?? null;
+    } catch (err) {
+      console.warn('Unexpected error loading profile avatar:', err);
+      return null;
+    }
+  }, []);
+
   // Initialize session and listen for auth state changes
   useEffect(() => {
     let isMounted = true;
@@ -88,8 +112,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (isMounted) {
           setSession(initialSession);
           setUser(initialSession?.user ?? null);
-          const metaAvatar = initialSession?.user?.user_metadata?.avatar_url || null;
-          setAvatarUrl(metaAvatar);
+        }
+
+        if (initialSession?.user) {
+          const avatar = await fetchAvatarUrl(initialSession.user.id);
+          if (isMounted) setAvatarUrl(avatar);
+        } else if (isMounted) {
+          setAvatarUrl(null);
         }
       } catch (err) {
         console.error('Unexpected auth initialization error:', err);
@@ -106,12 +135,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Listen for real-time auth changes (Sign in, Sign out, Token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, currentSession) => {
-      if (isMounted) {
-        setSession(currentSession);
-        setUser(currentSession?.user ?? null);
-        const metaAvatar = currentSession?.user?.user_metadata?.avatar_url || null;
-        setAvatarUrl(metaAvatar);
-        setIsLoading(false);
+      if (!isMounted) return;
+
+      setSession(currentSession);
+      setUser(currentSession?.user ?? null);
+      setIsLoading(false);
+
+      if (currentSession?.user) {
+        fetchAvatarUrl(currentSession.user.id).then((avatar) => {
+          if (isMounted) setAvatarUrl(avatar);
+        });
+      } else {
+        setAvatarUrl(null);
       }
     });
 
@@ -119,7 +154,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isMounted = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [fetchAvatarUrl]);
 
   // Sign In with email or username + password
   const signIn = useCallback(async (identifier: string, password: string): Promise<{ error: Error | null }> => {
@@ -141,7 +176,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       setSession(data.session);
       setUser(data.user);
-      setAvatarUrl(data.user?.user_metadata?.avatar_url || null);
       return { error: null };
     } catch (err: any) {
       return { error: err instanceof Error ? err : new Error(String(err)) };
@@ -181,7 +215,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (data.session) {
         setSession(data.session);
         setUser(data.user);
-        setAvatarUrl(data.user?.user_metadata?.avatar_url || null);
         return { error: null };
       }
 
@@ -204,7 +237,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       setSession(signInResult.data.session);
       setUser(signInResult.data.user);
-      setAvatarUrl(signInResult.data.user?.user_metadata?.avatar_url || null);
       return { error: null };
     } catch (err: any) {
       return { error: err instanceof Error ? err : new Error(String(err)) };
@@ -213,25 +245,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Update Profile Picture Avatar
   const updateAvatar = useCallback(async (newAvatar: string | null): Promise<{ error: Error | null }> => {
-    setAvatarUrl(newAvatar);
-
     if (!isSupabaseConfigured || !user) {
+      setAvatarUrl(newAvatar);
       return { error: null };
     }
 
     try {
-      // 1. Update user metadata in Supabase Auth
-      const { data: updateData, error: updateError } = await supabase.auth.updateUser({
-        data: { avatar_url: newAvatar },
-      });
-
-      if (updateError) {
-        console.warn('Failed to update user auth metadata avatar:', updateError.message);
-      } else if (updateData?.user) {
-        setUser(updateData.user);
-      }
-
-      // 2. Sync to profiles table
+      // Write to `profiles.avatar_url` — this column has a server-side
+      // CHECK constraint enforcing the 200KB avatar limit (see
+      // supabase/migrations). If this fails (e.g. a tampered client sent an
+      // oversized image), we surface the error and leave the previous
+      // avatar in place instead of updating local state optimistically.
       const { error: profileError } = await supabase
         .from('profiles')
         .upsert({
@@ -241,9 +265,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
 
       if (profileError) {
-        console.warn('Note: profiles table update failed (may not be migrated yet):', profileError.message);
+        console.error('Failed to update avatar:', profileError.message);
+        return { error: new Error(profileError.message) };
       }
 
+      setAvatarUrl(newAvatar);
       return { error: null };
     } catch (err: any) {
       console.error('Error updating avatar in Supabase:', err);
@@ -266,7 +292,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  // Delete Account completely (Lists, Profiles, Local Cache) - Apple Guideline 5.1.1(v)
+  // Delete Account completely — Auth user, profile, lists, and list items.
+  //
+  // The actual deletion happens server-side in the `delete-account` Edge
+  // Function (using the service-role key, which never touches this
+  // client). Deleting the Auth user cascades to profiles/lists/list_items
+  // automatically via the existing foreign keys.
   const deleteAccount = useCallback(async (): Promise<{ error: Error | null }> => {
     if (!user) return { error: null };
 
@@ -274,14 +305,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     try {
       if (isSupabaseConfigured) {
-        // 1. Delete all user lists (cascade deletes list_items)
-        await supabase.from('lists').delete().eq('user_id', userId);
+        const { data, error: fnError } = await supabase.functions.invoke('delete-account', {
+          method: 'POST',
+        });
 
-        // 2. Delete user profile
-        await supabase.from('profiles').delete().eq('id', userId);
+        if (fnError) {
+          throw fnError;
+        }
+        if (data?.error) {
+          throw new Error(data.error);
+        }
       }
 
-      // 3. Clear cached storage
+      // Clear cached local data for this user
       try {
         const AsyncStorage = require('@react-native-async-storage/async-storage').default;
         await AsyncStorage.removeItem(`@listrr_cached_lists_v2_${userId}`);
@@ -289,7 +325,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.warn('Failed to clear cached storage on account deletion:', storageErr);
       }
 
-      // 4. Sign out
+      // Sign out locally — the account and its session no longer exist server-side
       await signOut();
 
       return { error: null };
