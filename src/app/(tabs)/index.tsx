@@ -6,7 +6,6 @@ import {
   FlatList,
   Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -97,15 +96,28 @@ const ListCard = React.memo(({
                     style={styles.checkIcon}
                   />
                 )}
+
                 {/* Number list prefix */}
                 {item.type === 'numbered' && (
-                  <Text style={[styles.typeIndicator, { color: theme.textSecondary }]}>{index + 1}. </Text>
+                  <Text style={[styles.typeIndicator, { color: theme.textSecondary }]}>
+                    {index + 1}. 
+                  </Text>
                 )}
+
                 {/* Bullet list prefix */}
                 {item.type === 'bulleted' && (
-                  <Text style={[styles.typeIndicator, { color: theme.textSecondary }]}>• </Text>
+                  <Text style={[styles.typeIndicator, { color: theme.textSecondary }]}>
+                    • 
+                  </Text>
                 )}
-                <Text style={[styles.itemText, { color: theme.textPrimary }, subItem.isCompleted && styles.completedText]}>
+
+                <Text
+                  style={[
+                    styles.itemText,
+                    { color: theme.textPrimary },
+                    subItem.isCompleted && styles.completedText,
+                  ]}
+                >
                   {subItem.text}
                 </Text>
               </Pressable>
@@ -118,7 +130,8 @@ const ListCard = React.memo(({
 });
 
 export default function ListsScreen() {
-    const router = useRouter();
+  const router = useRouter();
+
   const {
     lists,
     isLoading,
@@ -128,7 +141,7 @@ export default function ListsScreen() {
     reorderLists,
     refreshLists,
   } = useLists();
-  
+
   // Tag and search filter state
   const [selectedTag, setSelectedTag] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -142,10 +155,16 @@ export default function ListsScreen() {
   }, [refreshLists]);
 
   // Get active (non-archived) lists
-  const unarchivedLists = useMemo(() => lists.filter((l) => !l.isArchived), [lists]);
-  
+  const unarchivedLists = useMemo(
+    () => lists.filter((l) => !l.isArchived),
+    [lists]
+  );
+
   // Search index lookup instance
-  const searchIndex = useMemo(() => new ListSearchIndex(unarchivedLists), [unarchivedLists]);
+  const searchIndex = useMemo(
+    () => new ListSearchIndex(unarchivedLists),
+    [unarchivedLists]
+  );
 
   // List IDs matching active search query
   const searchMatchingIds = useMemo(() => {
@@ -156,35 +175,51 @@ export default function ListsScreen() {
   const filteredLists = useMemo(() => {
     return unarchivedLists.filter((list) => {
       const matchesTag = selectedTag === 'All' || list.tag === selectedTag;
-      const matchesSearch = searchMatchingIds === null || searchMatchingIds.has(list.id);
+      const matchesSearch =
+        searchMatchingIds === null || searchMatchingIds.has(list.id);
+
       return matchesTag && matchesSearch;
     });
   }, [unarchivedLists, selectedTag, searchMatchingIds]);
 
   // Get unique list of available tags for filter row
-  const rawTags = unarchivedLists.map((l) => l.tag).filter((t): t is string => Boolean(t));
-  const tags = useMemo(() => ['All', ...Array.from(new Set(rawTags))], [unarchivedLists]);
+  const rawTags = unarchivedLists
+    .map((l) => l.tag)
+    .filter((t): t is string => Boolean(t));
 
-  // Separate pinned and unpinned lists
-  const pinnedLists = useMemo(() => filteredLists.filter((l) => l.isPinned), [filteredLists]);
-  const unpinnedLists = useMemo(() => filteredLists.filter((l) => !l.isPinned), [filteredLists]);
-
-  // Update order after drag-and-drop for pinned lists
-  const handleDragEndPinned = useCallback(
-    ({ data }: { data: List[] }) => {
-      const allUnpinned = lists.filter((l) => !l.isPinned);
-      reorderLists([...data, ...allUnpinned]);
-    },
-    [lists, reorderLists]
+  const tags = useMemo(
+    () => ['All', ...Array.from(new Set(rawTags))],
+    [unarchivedLists]
   );
 
-  // Update order after drag-and-drop for unpinned lists
-  const handleDragEndUnpinned = useCallback(
+  // Separate pinned and unpinned lists
+  const pinnedLists = useMemo(
+    () => filteredLists.filter((l) => l.isPinned),
+    [filteredLists]
+  );
+
+  const unpinnedLists = useMemo(
+    () => filteredLists.filter((l) => !l.isPinned),
+    [filteredLists]
+  );
+
+  // One combined list is used for the single vertical scroll container.
+  // Pinned lists always appear before unpinned lists.
+  const displayLists = useMemo(
+    () => [...pinnedLists, ...unpinnedLists],
+    [pinnedLists, unpinnedLists]
+  );
+
+  // Update order after drag-and-drop.
+  // Pinned and unpinned lists remain in their respective groups.
+  const handleDragEnd = useCallback(
     ({ data }: { data: List[] }) => {
-      const allPinned = lists.filter((l) => l.isPinned);
-      reorderLists([...allPinned, ...data]);
+      const reorderedPinned = data.filter((list) => list.isPinned);
+      const reorderedUnpinned = data.filter((list) => !list.isPinned);
+
+      reorderLists([...reorderedPinned, ...reorderedUnpinned]);
     },
-    [lists, reorderLists]
+    [reorderLists]
   );
 
   // Dynamic theme colors
@@ -201,31 +236,78 @@ export default function ListsScreen() {
     searchBg: isDarkMode ? '#2C2C2E' : '#E5E5EA',
   }), [isDarkMode]);
 
-  // Render method wrapper for DraggableFlatList
+  // Render method for the single DraggableFlatList
   const renderListItem = useCallback(
-    ({ item, drag, isActive }: RenderItemParams<List>) => (
-      <ListCard
-        item={item}
-        drag={drag}
-        isActive={isActive}
-        theme={theme}
-        onTogglePin={togglePinList}
-        onToggleComplete={toggleItemComplete}
-        onOpenDetail={(id) => router.push(`/list/${id}` as const)}
-      />
-    ),
-    [theme, togglePinList, toggleItemComplete, router]
+    ({ item, drag, isActive, getIndex }: RenderItemParams<List>) => {
+      const index = getIndex?.() ?? 0;
+      const isFirstUnpinned =
+        !item.isPinned &&
+        (index === 0 || displayLists[index - 1]?.isPinned);
+
+      return (
+        <View>
+          {/* Pinned section header */}
+          {index === 0 && item.isPinned && (
+            <Text style={[styles.sectionTitle, { color: theme.sectionHeader }]}>
+              📌 PINNED
+            </Text>
+          )}
+
+          {/* Other lists section header */}
+          {isFirstUnpinned && pinnedLists.length > 0 && (
+            <Text style={[styles.sectionTitle, { color: theme.sectionHeader }]}>
+              OTHER LISTS
+            </Text>
+          )}
+
+          <ListCard
+            item={item}
+            drag={drag}
+            isActive={isActive}
+            theme={theme}
+            onTogglePin={togglePinList}
+            onToggleComplete={toggleItemComplete}
+            onOpenDetail={(id) => router.push(`/list/${id}` as const)}
+          />
+        </View>
+      );
+    },
+    [
+      displayLists,
+      pinnedLists.length,
+      theme,
+      togglePinList,
+      toggleItemComplete,
+      router,
+    ]
   );
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]} edges={['bottom']}>
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: theme.bg }]}
+        edges={['bottom']}
+      >
         {/* Search input field */}
         <View style={styles.searchSection}>
-          <View style={[styles.searchContainer, { backgroundColor: theme.searchBg }]}>
-            <Ionicons name="search" size={18} color={theme.textSecondary} style={styles.searchIcon} />
+          <View
+            style={[
+              styles.searchContainer,
+              { backgroundColor: theme.searchBg },
+            ]}
+          >
+            <Ionicons
+              name="search"
+              size={18}
+              color={theme.textSecondary}
+              style={styles.searchIcon}
+            />
+
             <TextInput
-              style={[styles.searchInput, { color: theme.textPrimary }]}
+              style={[
+                styles.searchInput,
+                { color: theme.textPrimary },
+              ]}
               placeholder="Search lists or items..."
               placeholderTextColor={theme.textSecondary}
               value={searchQuery}
@@ -236,7 +318,12 @@ export default function ListsScreen() {
         </View>
 
         {/* Horizontal tag filter pills */}
-        <View style={[styles.filterContainer, { backgroundColor: theme.filterBg }]}>
+        <View
+          style={[
+            styles.filterContainer,
+            { backgroundColor: theme.filterBg },
+          ]}
+        >
           <FlatList
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -244,10 +331,20 @@ export default function ListsScreen() {
             keyExtractor={(item) => item}
             renderItem={({ item }) => (
               <TouchableOpacity
-                style={[styles.chip, { backgroundColor: theme.chipBg }, selectedTag === item && styles.chipActive]}
+                style={[
+                  styles.chip,
+                  { backgroundColor: theme.chipBg },
+                  selectedTag === item && styles.chipActive,
+                ]}
                 onPress={() => setSelectedTag(item)}
               >
-                <Text style={[styles.chipText, { color: theme.chipText }, selectedTag === item && styles.chipTextActive]}>
+                <Text
+                  style={[
+                    styles.chipText,
+                    { color: theme.chipText },
+                    selectedTag === item && styles.chipTextActive,
+                  ]}
+                >
                   {item}
                 </Text>
               </TouchableOpacity>
@@ -255,61 +352,54 @@ export default function ListsScreen() {
           />
         </View>
 
-                {/* Initial loading state (first fetch from Supabase, before any cached data exists) */}
-        {isLoading && filteredLists.length === 0 && lists.length === 0 ? (
+        {/* Initial loading state */}
+        {isLoading &&
+        filteredLists.length === 0 &&
+        lists.length === 0 ? (
           <View style={styles.emptyContainer}>
             <ActivityIndicator size="large" color="#208AEF" />
-            <Text style={[styles.emptyText, { color: theme.textSecondary }]}>Loading your lists...</Text>
+            <Text
+              style={[
+                styles.emptyText,
+                { color: theme.textSecondary },
+              ]}
+            >
+              Loading your lists...
+            </Text>
           </View>
         ) : filteredLists.length === 0 ? (
-          /* Empty state fallback — unchanged from original */
-          <ScrollView
-            contentContainerStyle={styles.emptyContainer}
-            refreshControl={
-              <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor="#208AEF" />
-            }
-          >
-            <Ionicons name="clipboard-outline" size={60} color={theme.textSecondary} />
-            <Text style={[styles.emptyText, { color: theme.textSecondary }]}>No lists found</Text>
-          </ScrollView>
+          /* Empty state */
+          <View style={styles.emptyContainer}>
+            <Ionicons
+              name="clipboard-outline"
+              size={60}
+              color={theme.textSecondary}
+            />
+            <Text
+              style={[
+                styles.emptyText,
+                { color: theme.textSecondary },
+              ]}
+            >
+              No lists found
+            </Text>
+          </View>
         ) : (
-          /* Main list content */
-          <ScrollView
+          /* Single vertical scroll + drag container */
+          <DraggableFlatList
+            data={displayLists}
+            onDragEnd={handleDragEnd}
+            keyExtractor={(item) => item.id}
+            renderItem={renderListItem}
             contentContainerStyle={styles.listContent}
             refreshControl={
-              <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor="#208AEF" />
+              <RefreshControl
+                refreshing={isRefreshing}
+                onRefresh={onRefresh}
+                tintColor="#208AEF"
+              />
             }
-          >
-            {/* Pinned lists section */}
-            {pinnedLists.length > 0 && (
-              <View style={styles.section}>
-                <Text style={[styles.sectionTitle, { color: theme.sectionHeader }]}>📌 PINNED</Text>
-                <DraggableFlatList
-                  data={pinnedLists}
-                  onDragEnd={handleDragEndPinned}
-                  keyExtractor={(item) => item.id}
-                  renderItem={renderListItem}
-                  scrollEnabled={false}
-                />
-              </View>
-            )}
-
-            {/* Unpinned lists section */}
-            {unpinnedLists.length > 0 && (
-              <View style={styles.section}>
-                {pinnedLists.length > 0 && (
-                  <Text style={[styles.sectionTitle, { color: theme.sectionHeader }]}>OTHER LISTS</Text>
-                )}
-                <DraggableFlatList
-                  data={unpinnedLists}
-                  onDragEnd={handleDragEndUnpinned}
-                  keyExtractor={(item) => item.id}
-                  renderItem={renderListItem}
-                  scrollEnabled={false}
-                />
-              </View>
-            )}
-          </ScrollView>
+          />
         )}
       </SafeAreaView>
     </GestureHandlerRootView>
@@ -317,35 +407,168 @@ export default function ListsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  searchSection: { paddingHorizontal: '4%', paddingTop: 8, paddingBottom: 4 },
-  searchContainer: { flexDirection: 'row', alignItems: 'center', borderRadius: 10, paddingHorizontal: 10, height: 38 },
-  searchIcon: { marginRight: 6 },
-  searchInput: { flex: 1, fontSize: 15, paddingVertical: 0 },
-  filterContainer: { paddingVertical: 8, paddingHorizontal: '4%' },
-  chip: { paddingHorizontal: 16, paddingVertical: 6, borderRadius: 16, marginRight: 8 },
-  chipActive: { backgroundColor: '#208AEF' },
-  chipText: { fontSize: 14, fontWeight: '500' },
-  chipTextActive: { color: '#FFFFFF' },
-  listContent: { padding: '4%' },
-  section: { marginBottom: 12 },
-  sectionTitle: { fontSize: 12, fontWeight: '700', letterSpacing: 0.8, marginTop: 4, marginBottom: 8, marginLeft: 4 },
-  card: { borderRadius: 12, padding: 16, marginBottom: 12, elevation: 2 },
-  activeCard: { opacity: 0.9, elevation: 8 },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-  dragHandle: { paddingRight: 8 },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, paddingRight: 8 },
-  cardTitle: { fontSize: 18, fontWeight: '600', flexShrink: 1 },
-  tagBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
-  tagText: { fontSize: 12, color: '#208AEF', fontWeight: '500' },
-  headerActions: { flexDirection: 'row', gap: 12 },
-  iconBtn: { padding: 2 },
-  itemsContainer: { gap: 8 },
-  itemRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
-  checkIcon: { marginRight: 8 },
-  typeIndicator: { fontSize: 15, fontWeight: '600' },
-  itemText: { fontSize: 15, flex: 1 },
-  completedText: { textDecorationLine: 'line-through', opacity: 0.5 },
-  emptyContainer: { alignItems: 'center', justifyContent: 'center', paddingTop: '20%' },
-  emptyText: { marginTop: 12, fontSize: 16 },
+  container: {
+    flex: 1,
+  },
+
+  searchSection: {
+    paddingHorizontal: '4%',
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    height: 38,
+  },
+
+  searchIcon: {
+    marginRight: 6,
+  },
+
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    paddingVertical: 0,
+  },
+
+  filterContainer: {
+    paddingVertical: 8,
+    paddingHorizontal: '4%',
+  },
+
+  chip: {
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginRight: 8,
+  },
+
+  chipActive: {
+    backgroundColor: '#208AEF',
+  },
+
+  chipText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+
+  chipTextActive: {
+    color: '#FFFFFF',
+  },
+
+  listContent: {
+    padding: '4%',
+    paddingBottom: 100,
+  },
+
+  sectionTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    marginTop: 4,
+    marginBottom: 8,
+    marginLeft: 4,
+  },
+
+  card: {
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    elevation: 2,
+  },
+
+  activeCard: {
+    opacity: 0.9,
+    elevation: 8,
+  },
+
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+
+  dragHandle: {
+    paddingRight: 8,
+  },
+
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+    paddingRight: 8,
+  },
+
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    flexShrink: 1,
+  },
+
+  tagBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+
+  tagText: {
+    fontSize: 12,
+    color: '#208AEF',
+    fontWeight: '500',
+  },
+
+  headerActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+
+  iconBtn: {
+    padding: 2,
+  },
+
+  itemsContainer: {
+    gap: 8,
+  },
+
+  itemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+
+  checkIcon: {
+    marginRight: 8,
+  },
+
+  typeIndicator: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+
+  itemText: {
+    fontSize: 15,
+    flex: 1,
+  },
+
+  completedText: {
+    textDecorationLine: 'line-through',
+    opacity: 0.5,
+  },
+
+  emptyContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: '20%',
+  },
+
+  emptyText: {
+    marginTop: 12,
+    fontSize: 16,
+  },
 });
