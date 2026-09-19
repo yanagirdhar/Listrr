@@ -21,42 +21,61 @@ import { useAuth } from '../../context/AuthContext';
 
 const MAX_AVATAR_SIZE_BYTES = 200 * 1024;
 
-const normalizeHeicAvatar = async (asset: ImagePicker.ImagePickerAsset) => {
+const normalizeHeicAvatar = async (
+  asset: ImagePicker.ImagePickerAsset
+): Promise<{ base64: string; mimeType: string }> => {
   const mimeType = (asset.mimeType || 'image/jpeg').toLowerCase();
-  const isHeic = ['image/heic', 'image/heif', 'image/heif-sequence'].includes(mimeType);
+  const heicLike = ['image/heic', 'image/heif', 'image/heif-sequence'].includes(mimeType);
 
-  if (!isHeic && mimeType !== 'image/jpeg' && mimeType !== 'image/png' && mimeType !== 'image/webp') {
+  // If the asset is not a known image type, normalize to jpeg for storage compatibility.
+  if (!heicLike && !['image/jpeg', 'image/png', 'image/webp'].includes(mimeType)) {
     return {
       base64: asset.base64 || '',
       mimeType: 'image/jpeg',
     };
   }
 
-  if (isHeic || mimeType === 'image/webp') {
-    const manipulated = await ImageManipulator.manipulateAsync(
-      asset.uri,
-      [{ resize: { width: 1200 } }],
-      {
-        compress: 0.85,
-        format: ImageManipulator.SaveFormat.JPEG,
-        base64: true,
-      }
-    );
+  // Apple camera output often comes in HEIC/HEIF, which storage rejects.
+  if (heicLike || mimeType === 'image/webp') {
+    try {
+      const manipulated = await ImageManipulator.manipulateAsync(
+        asset.uri,
+        [{ resize: { width: 1200 } }],
+        {
+          compress: 0.85,
+          format: ImageManipulator.SaveFormat.JPEG,
+          base64: true,
+        }
+      );
 
+      if (manipulated.base64) {
+        return {
+          base64: manipulated.base64,
+          mimeType: 'image/jpeg',
+        };
+      }
+    } catch (err) {
+      console.warn('Avatar conversion failed; falling back to original asset:', err);
+    }
+  }
+
+  // Use the original base64 if it is already in a compatible format.
+  if (asset.base64) {
     return {
-      base64: manipulated.base64 || '',
-      mimeType: 'image/jpeg',
+      base64: asset.base64,
+      mimeType: mimeType === 'image/png' ? 'image/png' : 'image/jpeg',
     };
   }
 
   return {
-    base64: asset.base64 || '',
-    mimeType: mimeType === 'image/png' ? 'image/png' : 'image/jpeg',
+    base64: '',
+    mimeType: 'image/jpeg',
   };
 };
 
 export default function ProfileScreen() {
   const router = useRouter();
+
   const { user, username, email, avatarUrl, signOut, updateAvatar, deleteAccount } = useAuth();
   const [isUpdatingAvatar, setIsUpdatingAvatar] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
@@ -101,15 +120,18 @@ export default function ProfileScreen() {
       let estimatedSizeBytes = selectedAsset.fileSize || 0;
 
       if (!estimatedSizeBytes && selectedAsset.base64) {
-        estimatedSizeBytes = Math.round(selectedAsset.base64.length * 0.75);
+        estimatedSizeBytes = Math.round((selectedAsset.base64.length * 3) / 4);
       }
 
       if (estimatedSizeBytes > MAX_AVATAR_SIZE_BYTES) {
         const sizeInKb = (estimatedSizeBytes / 1024).toFixed(0);
         const errorMsg = `Image size (${sizeInKb} KB) exceeds the 200 KB limit. Please choose a smaller image.`;
         setAvatarError(errorMsg);
-        if (Platform.OS === 'web') alert(errorMsg);
-        else Alert.alert('Image Too Large', errorMsg);
+        if (Platform.OS === 'web') {
+          alert(errorMsg);
+        } else {
+          Alert.alert('Image Too Large', errorMsg);
+        }
         return;
       }
 
@@ -142,9 +164,15 @@ export default function ProfileScreen() {
   const handleRemoveAvatar = async () => {
     setIsUpdatingAvatar(true);
     try {
-      await updateAvatar(null);
-    } catch (err) {
-      console.warn('Error removing avatar:', err);
+      const { error } = await updateAvatar(null);
+      if (error) {
+        setAvatarError(error.message || 'Failed to remove profile picture.');
+      } else {
+        setAvatarError(null);
+      }
+    } catch (err: any) {
+      console.error('Error removing avatar:', err);
+      setAvatarError(err.message || 'Failed to remove profile picture.');
     } finally {
       setIsUpdatingAvatar(false);
     }
@@ -154,7 +182,10 @@ export default function ProfileScreen() {
     if (Platform.OS === 'web') {
       const confirmed =
         typeof window !== 'undefined' ? window.confirm('Are you sure you want to sign out?') : true;
-      if (confirmed) await signOut();
+
+      if (confirmed) {
+        await signOut();
+      }
     } else {
       Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
         { text: 'Cancel', style: 'cancel' },
@@ -164,7 +195,8 @@ export default function ProfileScreen() {
   };
 
   const handleDeleteAccount = async () => {
-    const message = 'This will permanently delete your account, lists, and uploaded avatar. This action cannot be undone.';
+    const message =
+      'This will permanently delete your account, lists, and uploaded avatar. This action cannot be undone.';
 
     const performDelete = async () => {
       try {
@@ -173,8 +205,11 @@ export default function ProfileScreen() {
         if (error) throw error;
       } catch (err: any) {
         const errorMsg = err.message || 'Failed to delete account.';
-        if (Platform.OS === 'web') alert(errorMsg);
-        else Alert.alert('Error', errorMsg);
+        if (Platform.OS === 'web') {
+          alert(errorMsg);
+        } else {
+          Alert.alert('Error', errorMsg);
+        }
       } finally {
         setDeleting(false);
       }
@@ -183,7 +218,10 @@ export default function ProfileScreen() {
     if (Platform.OS === 'web') {
       const confirmed =
         typeof window !== 'undefined' ? window.confirm(message) : true;
-      if (confirmed) await performDelete();
+
+      if (confirmed) {
+        await performDelete();
+      }
     } else {
       Alert.alert('Delete Account', message, [
         { text: 'Cancel', style: 'cancel' },
@@ -234,6 +272,7 @@ export default function ProfileScreen() {
           <TouchableOpacity onPress={handlePickAvatar} disabled={isUpdatingAvatar}>
             <Text style={styles.avatarActionText}>Change Photo</Text>
           </TouchableOpacity>
+
           {avatarUrl && (
             <>
               <Text style={[styles.avatarActionDivider, dynamicStyles.textSecondary]}> • </Text>

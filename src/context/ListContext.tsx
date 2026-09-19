@@ -14,6 +14,7 @@ import { useAuth, listCacheKeyForUser } from './AuthContext';
 
 export type SyncStatus = 'connected' | 'offline' | 'unconfigured' | 'syncing' | 'error';
 
+// Safe cross-platform UUID v4 generator
 export function generateUUID(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
@@ -25,10 +26,12 @@ export function generateUUID(): string {
   });
 }
 
+// Check if string is a valid UUID
 export function isValidUUID(str: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(str);
 }
 
+// Type definition for context state and helper actions
 export interface ListContextType {
   lists: List[];
   isLoading: boolean;
@@ -67,8 +70,10 @@ const defaultListContext: ListContextType = {
   reorderLists: async () => {},
 };
 
+// React context initialization
 const ListContext = createContext<ListContextType>(defaultListContext);
 
+// Helper to transform raw Supabase join rows into frontend List objects
 function transformSupabaseRows(data: any[]): List[] {
   return data.map((row) => {
     const rawItems: any[] = row.list_items || [];
@@ -106,6 +111,8 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const { user, isLoading: isAuthLoading } = useAuth();
   const systemColorScheme = useColorScheme();
   const [isDarkMode, setIsDarkMode] = useState<boolean>(systemColorScheme === 'dark');
+
+  // Database and UI states
   const [lists, setLists] = useState<List[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(
@@ -119,6 +126,9 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const fetchRequestVersionRef = useRef(0);
   const currentUserId = user?.id;
 
+  // last known server-backed snapshot; used for rollback on mutation failures
+  const lastGoodSnapshotRef = useRef<List[]>([]);
+
   const cacheKey = currentUserId
     ? listCacheKeyForUser(currentUserId)
     : '@listrr_cached_lists_v2_guest';
@@ -127,6 +137,11 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsDarkMode(systemColorScheme === 'dark');
   }, [systemColorScheme]);
 
+  useEffect(() => {
+    lastGoodSnapshotRef.current = lists;
+  }, [lists]);
+
+  // Use this as a soft fallback only. Persist only after a successful server mutation.
   const saveToLocalCache = useCallback(async (dataToCache: List[]) => {
     try {
       await AsyncStorage.setItem(cacheKey, JSON.stringify(dataToCache));
@@ -135,110 +150,117 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [cacheKey]);
 
+  // Load from local AsyncStorage cache for current user
   const loadFromLocalCache = useCallback(async (): Promise<List[] | null> => {
     try {
       const cached = await AsyncStorage.getItem(cacheKey);
-      if (cached) return JSON.parse(cached);
+      if (cached) {
+        return JSON.parse(cached);
+      }
     } catch (e) {
       console.warn('Failed to load cached lists:', e);
     }
     return null;
   }, [cacheKey]);
 
-  const restoreSnapshot = useCallback(
+  // Restore previous server-backed snapshot after a failed mutation
+  const rollbackToSnapshot = useCallback(
     async (snapshot: List[]) => {
-      setLists(snapshot);
-      listsRef.current = snapshot;
-      await saveToLocalCache(snapshot);
+      const rollbackValue = snapshot.length > 0 ? snapshot : [];
+      setLists(rollbackValue);
+      listsRef.current = rollbackValue;
+      await saveToLocalCache(rollbackValue);
     },
     [saveToLocalCache]
   );
 
-  const fetchListsFromDB = useCallback(
-    async (showLoading = false) => {
-      if (isAuthLoading) return;
+  // Fetch real data from Supabase DB scoped to current authenticated user
+  const fetchListsFromDB = useCallback(async (showLoading = false) => {
+    if (isAuthLoading) return;
 
-      const requestVersion = ++fetchRequestVersionRef.current;
+    const requestVersion = ++fetchRequestVersionRef.current;
 
-      if (!currentUserId) {
-        setLists([]);
-        listsRef.current = [];
+    if (!currentUserId) {
+      setLists([]);
+      listsRef.current = [];
+      setIsLoading(false);
+      setSyncStatus('offline');
+      return;
+    }
+
+    if (!isSupabaseConfigured) {
+      const cached = await loadFromLocalCache();
+      const snapshot = cached || [];
+      setLists(snapshot);
+      listsRef.current = snapshot;
+      lastGoodSnapshotRef.current = snapshot;
+      setIsLoading(false);
+      setSyncStatus('unconfigured');
+      return;
+    }
+
+    if (showLoading) {
+      setIsLoading(true);
+    }
+    setSyncStatus('syncing');
+
+    try {
+      const { data, error } = await supabase
+        .from('lists')
+        .select(`
+          *,
+          list_items (
+            id,
+            list_id,
+            text,
+            is_completed,
+            position,
+            created_at
+          )
+        `)
+        .eq('user_id', currentUserId)
+        .order('position', { ascending: true })
+        .order('created_at', { ascending: false });
+
+      if (requestVersion !== fetchRequestVersionRef.current) return;
+
+      if (error) throw error;
+
+      const parsedLists = data ? transformSupabaseRows(data) : [];
+      setLists(parsedLists);
+      listsRef.current = parsedLists;
+      lastGoodSnapshotRef.current = parsedLists;
+
+      // Only cache after successful server confirmation.
+      await saveToLocalCache(parsedLists);
+
+      setSyncStatus('connected');
+      setErrorMessage(null);
+    } catch (err: any) {
+      if (requestVersion !== fetchRequestVersionRef.current) return;
+
+      console.error('Error fetching user data from Supabase:', err);
+      setSyncStatus('error');
+
+      if (err?.code === '42703' || String(err?.message).includes('lists.user_id does not exist')) {
+        setErrorMessage('Database migration required: Please run the latest migrations in supabase/migrations in your Supabase SQL editor.');
+      } else {
+        setErrorMessage(err.message || 'Failed to fetch your lists from database');
+      }
+
+      const cached = await loadFromLocalCache();
+      const fallbackSnapshot = cached && cached.length > 0 ? cached : [];
+      setLists(fallbackSnapshot);
+      listsRef.current = fallbackSnapshot;
+      lastGoodSnapshotRef.current = fallbackSnapshot;
+    } finally {
+      if (requestVersion === fetchRequestVersionRef.current) {
         setIsLoading(false);
-        setSyncStatus('offline');
-        return;
       }
+    }
+  }, [currentUserId, isAuthLoading, loadFromLocalCache, saveToLocalCache]);
 
-      if (!isSupabaseConfigured) {
-        const cached = await loadFromLocalCache();
-        setLists(cached || []);
-        listsRef.current = cached || [];
-        setIsLoading(false);
-        setSyncStatus('unconfigured');
-        return;
-      }
-
-      if (showLoading) setIsLoading(true);
-      setSyncStatus('syncing');
-
-      try {
-        const { data, error } = await supabase
-          .from('lists')
-          .select(`
-            *,
-            list_items (
-              id,
-              list_id,
-              text,
-              is_completed,
-              position,
-              created_at
-            )
-          `)
-          .eq('user_id', currentUserId)
-          .order('position', { ascending: true })
-          .order('created_at', { ascending: false });
-
-        if (requestVersion !== fetchRequestVersionRef.current) return;
-
-        if (error) throw error;
-
-        const parsedLists = data ? transformSupabaseRows(data) : [];
-        setLists(parsedLists);
-        listsRef.current = parsedLists;
-        await saveToLocalCache(parsedLists);
-        setSyncStatus('connected');
-        setErrorMessage(null);
-      } catch (err: any) {
-        if (requestVersion !== fetchRequestVersionRef.current) return;
-
-        console.error('Error fetching user data from Supabase:', err);
-        setSyncStatus('error');
-
-        if (err?.code === '42703' || String(err?.message).includes('lists.user_id does not exist')) {
-          setErrorMessage(
-            'Database migration required: Please run the latest migrations in supabase/migrations in your Supabase SQL editor.'
-          );
-        } else {
-          setErrorMessage(err.message || 'Failed to fetch your lists from database');
-        }
-
-        const cached = await loadFromLocalCache();
-        if (cached && cached.length > 0) {
-          setLists(cached);
-          listsRef.current = cached;
-        } else {
-          setLists([]);
-          listsRef.current = [];
-        }
-      } finally {
-        if (requestVersion === fetchRequestVersionRef.current) {
-          setIsLoading(false);
-        }
-      }
-    },
-    [currentUserId, isAuthLoading, loadFromLocalCache, saveToLocalCache]
-  );
-
+  // Initial load and Realtime Postgres Channel subscription when user is authenticated
   useEffect(() => {
     if (isAuthLoading) return;
 
@@ -298,6 +320,11 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await fetchListsFromDB(true);
   };
 
+  // Safe multi-step writes:
+  // 1) update local UI optimistically
+  // 2) perform server writes
+  // 3) if any step fails, revert to the last known good snapshot
+  // 4) never persist a failed mutation to AsyncStorage as authoritative
   const addList = async (
     title: string,
     type: ListType,
@@ -306,7 +333,7 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
   ) => {
     if (!currentUserId) return;
 
-    const previousLists = [...listsRef.current];
+    const previousSnapshot = [...lastGoodSnapshotRef.current];
     const listId = generateUUID();
     const tagValue = tag?.trim() || 'General';
     const createdAt = new Date().toISOString();
@@ -366,14 +393,19 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (itemsError) throw itemsError;
       }
 
+      // Server confirmed; now update local cache.
+      const confirmedSnapshot = [...listsRef.current];
+      setLists(confirmedSnapshot);
+      listsRef.current = confirmedSnapshot;
+      lastGoodSnapshotRef.current = confirmedSnapshot;
+      await saveToLocalCache(confirmedSnapshot);
       await fetchListsFromDB(false);
-      await saveToLocalCache(listsRef.current);
     } catch (err: any) {
       console.error('Error adding list to Supabase:', err);
       setErrorMessage(err.message || 'Failed to save list');
-      setLists(previousLists);
-      listsRef.current = previousLists;
-      await saveToLocalCache(previousLists);
+
+      // Revert to the last known good server-backed state, not the bad optimistic state.
+      await rollbackToSnapshot(previousSnapshot);
       await fetchListsFromDB(false);
       throw err;
     }
@@ -388,7 +420,7 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
   ) => {
     if (!currentUserId) return;
 
-    const previousLists = [...listsRef.current];
+    const previousSnapshot = [...lastGoodSnapshotRef.current];
     const tagValue = tag?.trim() || 'General';
 
     const targetList = listsRef.current.find((l) => l.id === id);
@@ -432,7 +464,11 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (listError) throw listError;
 
-      const { error: deleteError } = await supabase.from('list_items').delete().eq('list_id', id);
+      const { error: deleteError } = await supabase
+        .from('list_items')
+        .delete()
+        .eq('list_id', id);
+
       if (deleteError) throw deleteError;
 
       if (updatedItems.length > 0) {
@@ -444,18 +480,24 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
           position: item.position ?? 0,
         }));
 
-        const { error: insertError } = await supabase.from('list_items').insert(itemsToInsert);
+        const { error: insertError } = await supabase
+          .from('list_items')
+          .insert(itemsToInsert);
+
         if (insertError) throw insertError;
       }
 
+      const confirmedSnapshot = [...listsRef.current];
+      setLists(confirmedSnapshot);
+      listsRef.current = confirmedSnapshot;
+      lastGoodSnapshotRef.current = confirmedSnapshot;
+      await saveToLocalCache(confirmedSnapshot);
       await fetchListsFromDB(false);
-      await saveToLocalCache(listsRef.current);
     } catch (err: any) {
       console.error('Error updating list in Supabase:', err);
       setErrorMessage(err.message || 'Failed to update list');
-      setLists(previousLists);
-      listsRef.current = previousLists;
-      await saveToLocalCache(previousLists);
+
+      await rollbackToSnapshot(previousSnapshot);
       await fetchListsFromDB(false);
       throw err;
     }
@@ -464,7 +506,7 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const deleteList = async (id: string) => {
     if (!currentUserId) return;
 
-    const previousLists = [...listsRef.current];
+    const previousSnapshot = [...lastGoodSnapshotRef.current];
     const nextLists = listsRef.current.filter((list) => list.id !== id);
 
     setLists(nextLists);
@@ -481,13 +523,15 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (error) throw error;
 
-      await saveToLocalCache(listsRef.current);
+      const confirmedSnapshot = [...listsRef.current];
+      setLists(confirmedSnapshot);
+      listsRef.current = confirmedSnapshot;
+      lastGoodSnapshotRef.current = confirmedSnapshot;
+      await saveToLocalCache(confirmedSnapshot);
     } catch (err: any) {
       console.error('Error deleting list from Supabase:', err);
       setErrorMessage(err.message || 'Failed to delete list');
-      setLists(previousLists);
-      listsRef.current = previousLists;
-      await saveToLocalCache(previousLists);
+      await rollbackToSnapshot(previousSnapshot);
       await fetchListsFromDB(false);
       throw err;
     }
@@ -496,7 +540,7 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const togglePinList = async (id: string) => {
     if (!currentUserId) return;
 
-    const previousLists = [...listsRef.current];
+    const previousSnapshot = [...lastGoodSnapshotRef.current];
     let targetNewPinned = true;
 
     const nextLists = listsRef.current.map((list) => {
@@ -521,12 +565,14 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (error) throw error;
 
-      await saveToLocalCache(listsRef.current);
+      const confirmedSnapshot = [...listsRef.current];
+      setLists(confirmedSnapshot);
+      listsRef.current = confirmedSnapshot;
+      lastGoodSnapshotRef.current = confirmedSnapshot;
+      await saveToLocalCache(confirmedSnapshot);
     } catch (err: any) {
       console.error('Error toggling pin in Supabase:', err);
-      setLists(previousLists);
-      listsRef.current = previousLists;
-      await saveToLocalCache(previousLists);
+      await rollbackToSnapshot(previousSnapshot);
       await fetchListsFromDB(false);
       throw err;
     }
@@ -535,7 +581,7 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const toggleArchiveList = async (id: string) => {
     if (!currentUserId) return;
 
-    const previousLists = [...listsRef.current];
+    const previousSnapshot = [...lastGoodSnapshotRef.current];
     let targetNewArchived = true;
 
     const nextLists = listsRef.current.map((list) => {
@@ -560,12 +606,14 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (error) throw error;
 
-      await saveToLocalCache(listsRef.current);
+      const confirmedSnapshot = [...listsRef.current];
+      setLists(confirmedSnapshot);
+      listsRef.current = confirmedSnapshot;
+      lastGoodSnapshotRef.current = confirmedSnapshot;
+      await saveToLocalCache(confirmedSnapshot);
     } catch (err: any) {
       console.error('Error toggling archive in Supabase:', err);
-      setLists(previousLists);
-      listsRef.current = previousLists;
-      await saveToLocalCache(previousLists);
+      await rollbackToSnapshot(previousSnapshot);
       await fetchListsFromDB(false);
       throw err;
     }
@@ -574,7 +622,7 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const toggleItemComplete = async (listId: string, itemId: string) => {
     if (!currentUserId) return;
 
-    const previousLists = [...listsRef.current];
+    const previousSnapshot = [...lastGoodSnapshotRef.current];
     let targetNewCompleted: boolean | null = null;
 
     const nextLists = listsRef.current.map((list) => {
@@ -608,12 +656,14 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (error) throw error;
 
-      await saveToLocalCache(listsRef.current);
+      const confirmedSnapshot = [...listsRef.current];
+      setLists(confirmedSnapshot);
+      listsRef.current = confirmedSnapshot;
+      lastGoodSnapshotRef.current = confirmedSnapshot;
+      await saveToLocalCache(confirmedSnapshot);
     } catch (err: any) {
       console.error('Error toggling item completion in Supabase:', err);
-      setLists(previousLists);
-      listsRef.current = previousLists;
-      await saveToLocalCache(previousLists);
+      await rollbackToSnapshot(previousSnapshot);
       await fetchListsFromDB(false);
       throw err;
     }
@@ -625,7 +675,7 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const trimmed = text.trim();
     if (!trimmed) return;
 
-    const previousLists = [...listsRef.current];
+    const previousSnapshot = [...lastGoodSnapshotRef.current];
     const newItemId = generateUUID();
     let nextPosition = 0;
 
@@ -664,22 +714,25 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (error) throw error;
 
+      const confirmedSnapshot = [...listsRef.current];
+      setLists(confirmedSnapshot);
+      listsRef.current = confirmedSnapshot;
+      lastGoodSnapshotRef.current = confirmedSnapshot;
+      await saveToLocalCache(confirmedSnapshot);
       await fetchListsFromDB(false);
-      await saveToLocalCache(listsRef.current);
     } catch (err: any) {
       console.error('Error adding item to Supabase:', err);
-      setLists(previousLists);
-      listsRef.current = previousLists;
-      await saveToLocalCache(previousLists);
+      await rollbackToSnapshot(previousSnapshot);
       await fetchListsFromDB(false);
       throw err;
     }
   };
 
+  // Reorder lists and sync position index to database
   const reorderLists = async (newLists: List[]) => {
     if (!currentUserId) return;
 
-    const previousLists = [...listsRef.current];
+    const previousSnapshot = [...lastGoodSnapshotRef.current];
     const updated = newLists.map((item, index) => ({
       ...item,
       position: index,
@@ -702,12 +755,15 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
         );
 
       await Promise.all(validUpdates);
-      await saveToLocalCache(updated);
+
+      const confirmedSnapshot = [...updated];
+      setLists(confirmedSnapshot);
+      listsRef.current = confirmedSnapshot;
+      lastGoodSnapshotRef.current = confirmedSnapshot;
+      await saveToLocalCache(confirmedSnapshot);
     } catch (err: any) {
       console.error('Error syncing reordered lists to Supabase:', err);
-      setLists(previousLists);
-      listsRef.current = previousLists;
-      await saveToLocalCache(previousLists);
+      await rollbackToSnapshot(previousSnapshot);
       await fetchListsFromDB(false);
       throw err;
     }
