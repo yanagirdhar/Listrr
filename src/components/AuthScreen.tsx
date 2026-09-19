@@ -18,7 +18,7 @@ export default function AuthScreen() {
   const { signIn, signUp } = useAuth();
   const { isDarkMode } = useLists();
 
-  // 'signin' | 'signup' — same two-mode pattern as your existing chip filters
+  // 'signin' | 'signup' — same two-mode pattern as the existing chip filters
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
 
   const [identifier, setIdentifier] = useState('');
@@ -26,6 +26,7 @@ export default function AuthScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Reuses the exact same theme tokens as index.tsx / profile.tsx
@@ -42,31 +43,42 @@ export default function AuthScreen() {
   const handleModeSwitch = (newMode: 'signin' | 'signup') => {
     setMode(newMode);
     setErrorMessage(null);
+    setSuccessMessage(null);
   };
 
   const handleSubmit = async () => {
+    if (isSubmitting) return;
+
     setErrorMessage(null);
+    setSuccessMessage(null);
 
     const cleanIdentifier = identifier.trim();
-    const cleanPassword = password.trim();
+
+    // The password is deliberately NOT trimmed. Trimming it here silently
+    // changes the credential, so a password containing leading/trailing
+    // whitespace (set via the dashboard or a reset link) could never be
+    // used to sign in, and an account created here could not be accessed
+    // from any other Supabase client.
+    const rawPassword = password;
 
     if (!cleanIdentifier) {
       setErrorMessage('Please enter your email');
       return;
     }
-    if (!cleanIdentifier.includes('@')) {
+    // Slightly stricter than a bare '@' check, still permissive.
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanIdentifier)) {
       setErrorMessage('Please enter a valid email address');
       return;
     }
-    if (!cleanPassword) {
+    if (!rawPassword) {
       setErrorMessage('Please enter your password');
       return;
     }
-    if (cleanPassword.length < 6) {
+    if (rawPassword.length < 6) {
       setErrorMessage('Password must be at least 6 characters long');
       return;
     }
-    if (mode === 'signup' && cleanPassword !== confirmPassword.trim()) {
+    if (mode === 'signup' && rawPassword !== confirmPassword) {
       setErrorMessage('Passwords do not match');
       return;
     }
@@ -74,14 +86,40 @@ export default function AuthScreen() {
     setIsSubmitting(true);
     try {
       if (mode === 'signin') {
-        const { error } = await signIn(cleanIdentifier, cleanPassword);
-        if (error) setErrorMessage(error.message || 'Invalid email or password');
-      } else {
-        const { error } = await signUp(cleanIdentifier, cleanPassword);
-        if (error) setErrorMessage(error.message || 'Failed to create account. Please try again.');
+        const { error } = await signIn(cleanIdentifier, rawPassword);
+        if (error) {
+          // Supabase returns this verbatim for an unconfirmed address;
+          // spelling out the next step avoids a dead end after sign-up.
+          setErrorMessage(
+            /email not confirmed/i.test(error.message)
+              ? 'Please confirm your email address first — check your inbox and spam folder for the confirmation link.'
+              : error.message || 'Invalid email or password'
+          );
+        }
+        return;
+      }
+
+      const { error, requiresEmailConfirmation } = await signUp(cleanIdentifier, rawPassword);
+
+      if (error) {
+        setErrorMessage(error.message || 'Failed to create account. Please try again.');
+        return;
+      }
+
+      if (requiresEmailConfirmation) {
+        // Phrased so it is also correct when the address already exists —
+        // Supabase intentionally returns an identical response in that case
+        // to prevent account enumeration.
+        setSuccessMessage(
+          'Check your email (including spam) for a confirmation link, then come back and sign in. If you already have an account, sign in instead.'
+        );
+        setPassword('');
+        setConfirmPassword('');
       }
     } catch (err: any) {
-      setErrorMessage(err.message || 'An unexpected error occurred. Please try again.');
+      // signIn/signUp resolve rather than reject, but an unexpected throw
+      // must not leave the button stuck in its loading state.
+      setErrorMessage(err?.message || 'An unexpected error occurred. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -97,7 +135,7 @@ export default function AuthScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* Brand header — reuses the same accent-circle pattern as the Profile avatar */}
+        {/* Brand header */}
         <View style={styles.headerArea}>
           <View style={[styles.badge, dynamicStyles.avatarBg]}>
             <Ionicons name="list" size={36} color="#208AEF" />
@@ -130,12 +168,19 @@ export default function AuthScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Form card — same card style used everywhere else in the app */}
+        {/* Form card */}
         <View style={[styles.card, dynamicStyles.card]}>
           {errorMessage && (
             <View style={styles.errorBanner}>
               <Ionicons name="alert-circle" size={18} color="#FF3B30" style={{ marginRight: 8 }} />
               <Text style={styles.errorText}>{errorMessage}</Text>
+            </View>
+          )}
+
+          {successMessage && (
+            <View style={styles.successBanner}>
+              <Ionicons name="checkmark-circle" size={18} color="#34C759" style={{ marginRight: 8 }} />
+              <Text style={styles.successText}>{successMessage}</Text>
             </View>
           )}
 
@@ -262,6 +307,15 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   errorText: { color: '#FF3B30', fontSize: 13, flex: 1 },
+  successBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(52, 199, 89, 0.12)',
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  successText: { color: '#34C759', fontSize: 13, flex: 1 },
   inputGroup: { marginBottom: 14 },
   inputLabel: { fontSize: 13, fontWeight: '500', marginBottom: 6 },
   inputBox: { flexDirection: 'row', alignItems: 'center', borderRadius: 10, paddingHorizontal: 10, height: 44 },

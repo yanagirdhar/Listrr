@@ -3,7 +3,7 @@ import { useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { List, ListItem, ListType } from '../types/list';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { useAuth } from './AuthContext';
+import { useAuth, listCacheKeyForUser } from './AuthContext';
 
 export type SyncStatus = 'connected' | 'offline' | 'unconfigured' | 'syncing' | 'error';
 
@@ -119,9 +119,11 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const currentUserId = user?.id;
 
-  // Cache storage key unique to the authenticated user ID
+  // Cache storage key — uses the shared helper so AuthContext and ListContext
+  // always reference the exact same key format (and deleteAccount clears it
+  // correctly on the first try without needing a second lookup).
   const cacheKey = currentUserId
-    ? `@listrr_cached_lists_v2_${currentUserId}`
+    ? listCacheKeyForUser(currentUserId)
     : '@listrr_cached_lists_v2_guest';
 
   useEffect(() => {
@@ -251,10 +253,10 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (!isSupabaseConfigured) return;
 
-    // Subscribe to realtime database changes for authenticated user workspace:
+    // Subscribe to realtime database changes for authenticated user workspace.
     // Both the 'lists' and 'list_items' subscriptions are filtered by
     // user_id at the Postgres subscription level (list_items.user_id is
-    // denormalized from its parent list — see the backend_hardening
+    // denormalized from its parent list — see the backend hardening
     // migration — specifically so this filter is possible). Without this
     // filter, every client would receive a change notification for every
     // OTHER user's item edits anywhere in the database, triggering a
