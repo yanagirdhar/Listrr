@@ -1,4 +1,11 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+} from 'react';
 import { useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { List, ListItem, ListType } from '../types/list';
@@ -7,7 +14,6 @@ import { useAuth, listCacheKeyForUser } from './AuthContext';
 
 export type SyncStatus = 'connected' | 'offline' | 'unconfigured' | 'syncing' | 'error';
 
-// Safe cross-platform UUID v4 generator
 export function generateUUID(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
@@ -19,12 +25,10 @@ export function generateUUID(): string {
   });
 }
 
-// Check if string is a valid UUID
 export function isValidUUID(str: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(str);
 }
 
-// Type definition for context state and helper actions
 export interface ListContextType {
   lists: List[];
   isLoading: boolean;
@@ -63,14 +67,11 @@ const defaultListContext: ListContextType = {
   reorderLists: async () => {},
 };
 
-// React context initialization
 const ListContext = createContext<ListContextType>(defaultListContext);
 
-// Helper to transform raw Supabase join rows into frontend List objects
 function transformSupabaseRows(data: any[]): List[] {
   return data.map((row) => {
     const rawItems: any[] = row.list_items || [];
-    // Sort items by position ascending, then created_at
     const sortedItems = [...rawItems].sort((a, b) => {
       if (a.position !== undefined && b.position !== undefined && a.position !== b.position) {
         return a.position - b.position;
@@ -105,8 +106,6 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const { user, isLoading: isAuthLoading } = useAuth();
   const systemColorScheme = useColorScheme();
   const [isDarkMode, setIsDarkMode] = useState<boolean>(systemColorScheme === 'dark');
-
-  // Database and UI states
   const [lists, setLists] = useState<List[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(
@@ -117,11 +116,9 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const listsRef = useRef<List[]>(lists);
   listsRef.current = lists;
 
+  const fetchRequestVersionRef = useRef(0);
   const currentUserId = user?.id;
 
-  // Cache storage key — uses the shared helper so AuthContext and ListContext
-  // always reference the exact same key format (and deleteAccount clears it
-  // correctly on the first try without needing a second lookup).
   const cacheKey = currentUserId
     ? listCacheKeyForUser(currentUserId)
     : '@listrr_cached_lists_v2_guest';
@@ -130,7 +127,6 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsDarkMode(systemColorScheme === 'dark');
   }, [systemColorScheme]);
 
-  // Persist lists to AsyncStorage cache for current user
   const saveToLocalCache = useCallback(async (dataToCache: List[]) => {
     try {
       await AsyncStorage.setItem(cacheKey, JSON.stringify(dataToCache));
@@ -139,106 +135,110 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [cacheKey]);
 
-  // Load from local AsyncStorage cache for current user
   const loadFromLocalCache = useCallback(async (): Promise<List[] | null> => {
     try {
       const cached = await AsyncStorage.getItem(cacheKey);
-      if (cached) {
-        return JSON.parse(cached);
-      }
+      if (cached) return JSON.parse(cached);
     } catch (e) {
       console.warn('Failed to load cached lists:', e);
     }
     return null;
   }, [cacheKey]);
 
-  // Fetch real data from Supabase DB scoped to current authenticated user
-  const fetchListsFromDB = useCallback(async (showLoading = false) => {
-    if (isAuthLoading) return;
+  const restoreSnapshot = useCallback(
+    async (snapshot: List[]) => {
+      setLists(snapshot);
+      listsRef.current = snapshot;
+      await saveToLocalCache(snapshot);
+    },
+    [saveToLocalCache]
+  );
 
-    // If user is not logged in, clear lists and show offline
-    if (!currentUserId) {
-      setLists([]);
-      listsRef.current = [];
-      setIsLoading(false);
-      setSyncStatus('offline');
-      return;
-    }
+  const fetchListsFromDB = useCallback(
+    async (showLoading = false) => {
+      if (isAuthLoading) return;
 
-    if (!isSupabaseConfigured) {
-      const cached = await loadFromLocalCache();
-      setLists(cached || []);
-      listsRef.current = cached || [];
-      setIsLoading(false);
-      setSyncStatus('unconfigured');
-      return;
-    }
+      const requestVersion = ++fetchRequestVersionRef.current;
 
-    if (showLoading) {
-      setIsLoading(true);
-    }
-    setSyncStatus('syncing');
-
-    try {
-      const { data, error } = await supabase
-        .from('lists')
-        .select(`
-          *,
-          list_items (
-            id,
-            list_id,
-            text,
-            is_completed,
-            position,
-            created_at
-          )
-        `)
-        .eq('user_id', currentUserId)
-        .order('position', { ascending: true })
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        throw error;
+      if (!currentUserId) {
+        setLists([]);
+        listsRef.current = [];
+        setIsLoading(false);
+        setSyncStatus('offline');
+        return;
       }
 
-      if (data && data.length > 0) {
-        const parsedLists = transformSupabaseRows(data);
+      if (!isSupabaseConfigured) {
+        const cached = await loadFromLocalCache();
+        setLists(cached || []);
+        listsRef.current = cached || [];
+        setIsLoading(false);
+        setSyncStatus('unconfigured');
+        return;
+      }
+
+      if (showLoading) setIsLoading(true);
+      setSyncStatus('syncing');
+
+      try {
+        const { data, error } = await supabase
+          .from('lists')
+          .select(`
+            *,
+            list_items (
+              id,
+              list_id,
+              text,
+              is_completed,
+              position,
+              created_at
+            )
+          `)
+          .eq('user_id', currentUserId)
+          .order('position', { ascending: true })
+          .order('created_at', { ascending: false });
+
+        if (requestVersion !== fetchRequestVersionRef.current) return;
+
+        if (error) throw error;
+
+        const parsedLists = data ? transformSupabaseRows(data) : [];
         setLists(parsedLists);
         listsRef.current = parsedLists;
         await saveToLocalCache(parsedLists);
         setSyncStatus('connected');
         setErrorMessage(null);
-      } else {
-        // User has 0 lists created yet in their private account
-        setLists([]);
-        listsRef.current = [];
-        await saveToLocalCache([]);
-        setSyncStatus('connected');
-        setErrorMessage(null);
-      }
-    } catch (err: any) {
-      console.error('Error fetching user data from Supabase:', err);
-      setSyncStatus('error');
-      if (err?.code === '42703' || String(err?.message).includes('lists.user_id does not exist')) {
-        setErrorMessage('Database migration required: Please run the latest migrations in supabase/migrations in your Supabase SQL editor.');
-      } else {
-        setErrorMessage(err.message || 'Failed to fetch your lists from database');
-      }
-      // Load cache as fallback
-      const cached = await loadFromLocalCache();
-      if (cached && cached.length > 0) {
-        setLists(cached);
-        listsRef.current = cached;
-      } else {
-        setLists([]);
-        listsRef.current = [];
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  }, [currentUserId, isAuthLoading, loadFromLocalCache, saveToLocalCache]);
+      } catch (err: any) {
+        if (requestVersion !== fetchRequestVersionRef.current) return;
 
-  // Initial load and Realtime Postgres Channel subscription when user is authenticated
+        console.error('Error fetching user data from Supabase:', err);
+        setSyncStatus('error');
+
+        if (err?.code === '42703' || String(err?.message).includes('lists.user_id does not exist')) {
+          setErrorMessage(
+            'Database migration required: Please run the latest migrations in supabase/migrations in your Supabase SQL editor.'
+          );
+        } else {
+          setErrorMessage(err.message || 'Failed to fetch your lists from database');
+        }
+
+        const cached = await loadFromLocalCache();
+        if (cached && cached.length > 0) {
+          setLists(cached);
+          listsRef.current = cached;
+        } else {
+          setLists([]);
+          listsRef.current = [];
+        }
+      } finally {
+        if (requestVersion === fetchRequestVersionRef.current) {
+          setIsLoading(false);
+        }
+      }
+    },
+    [currentUserId, isAuthLoading, loadFromLocalCache, saveToLocalCache]
+  );
+
   useEffect(() => {
     if (isAuthLoading) return;
 
@@ -253,14 +253,6 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (!isSupabaseConfigured) return;
 
-    // Subscribe to realtime database changes for authenticated user workspace.
-    // Both the 'lists' and 'list_items' subscriptions are filtered by
-    // user_id at the Postgres subscription level (list_items.user_id is
-    // denormalized from its parent list — see the backend hardening
-    // migration — specifically so this filter is possible). Without this
-    // filter, every client would receive a change notification for every
-    // OTHER user's item edits anywhere in the database, triggering a
-    // needless refetch on every keystroke, app-wide.
     const channel = supabase
       .channel(`realtime_user_workspace_${currentUserId}`)
       .on(
@@ -300,15 +292,12 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [currentUserId, isAuthLoading, fetchListsFromDB]);
 
-  // Toggle theme mode manually
   const toggleDarkMode = () => setIsDarkMode((prev) => !prev);
 
-  // Manual refresh helper
   const refreshLists = async () => {
     await fetchListsFromDB(true);
   };
 
-  // Add a new list to Supabase with user_id and client-generated UUIDs
   const addList = async (
     title: string,
     type: ListType,
@@ -317,13 +306,14 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
   ) => {
     if (!currentUserId) return;
 
+    const previousLists = [...listsRef.current];
     const listId = generateUUID();
     const tagValue = tag?.trim() || 'General';
     const createdAt = new Date().toISOString();
 
     const optimisticItems: ListItem[] = itemTexts.map((text, idx) => ({
       id: generateUUID(),
-      listId: listId,
+      listId,
       text: text.trim(),
       isCompleted: false,
       position: idx,
@@ -346,33 +336,23 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const nextLists = [optimisticList, ...listsRef.current];
     setLists(nextLists);
     listsRef.current = nextLists;
-    await saveToLocalCache(nextLists);
 
-    if (!isSupabaseConfigured) {
-      return;
-    }
+    if (!isSupabaseConfigured) return;
 
     try {
-      // 1. Insert list row with explicit UUID and current user_id
-      const { error: listError } = await supabase
-        .from('lists')
-        .insert({
-          id: listId,
-          user_id: currentUserId,
-          title: title.trim(),
-          type,
-          tag: tagValue,
-          is_pinned: false,
-          is_archived: false,
-          position: 0,
-        });
+      const { error: listError } = await supabase.from('lists').insert({
+        id: listId,
+        user_id: currentUserId,
+        title: title.trim(),
+        type,
+        tag: tagValue,
+        is_pinned: false,
+        is_archived: false,
+        position: 0,
+      });
 
       if (listError) throw listError;
 
-      // 2. Insert items with explicit UUIDs. user_id is auto-populated
-      //    server-side by the set_list_items_user_id trigger from the
-      //    parent list, so it doesn't need to be (and can't safely be)
-      //    trusted from the client.
       if (optimisticItems.length > 0) {
         const itemsToInsert = optimisticItems.map((item) => ({
           id: item.id,
@@ -382,22 +362,23 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
           position: item.position ?? 0,
         }));
 
-        const { error: itemsError } = await supabase
-          .from('list_items')
-          .insert(itemsToInsert);
-
+        const { error: itemsError } = await supabase.from('list_items').insert(itemsToInsert);
         if (itemsError) throw itemsError;
       }
 
       await fetchListsFromDB(false);
+      await saveToLocalCache(listsRef.current);
     } catch (err: any) {
       console.error('Error adding list to Supabase:', err);
-      setErrorMessage(err.message);
+      setErrorMessage(err.message || 'Failed to save list');
+      setLists(previousLists);
+      listsRef.current = previousLists;
+      await saveToLocalCache(previousLists);
       await fetchListsFromDB(false);
+      throw err;
     }
   };
 
-  // Update existing list attributes and items
   const updateList = async (
     id: string,
     title: string,
@@ -406,6 +387,8 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
     itemTexts: string[] = []
   ) => {
     if (!currentUserId) return;
+
+    const previousLists = [...listsRef.current];
     const tagValue = tag?.trim() || 'General';
 
     const targetList = listsRef.current.find((l) => l.id === id);
@@ -433,14 +416,10 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     setLists(nextLists);
     listsRef.current = nextLists;
-    await saveToLocalCache(nextLists);
 
-    if (!isSupabaseConfigured || !isValidUUID(id)) {
-      return;
-    }
+    if (!isSupabaseConfigured || !isValidUUID(id)) return;
 
     try {
-      // 1. Update list metadata
       const { error: listError } = await supabase
         .from('lists')
         .update({
@@ -453,12 +432,7 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (listError) throw listError;
 
-      // 2. Refresh items
-      const { error: deleteError } = await supabase
-        .from('list_items')
-        .delete()
-        .eq('list_id', id);
-
+      const { error: deleteError } = await supabase.from('list_items').delete().eq('list_id', id);
       if (deleteError) throw deleteError;
 
       if (updatedItems.length > 0) {
@@ -470,32 +444,33 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
           position: item.position ?? 0,
         }));
 
-        const { error: insertError } = await supabase
-          .from('list_items')
-          .insert(itemsToInsert);
-
+        const { error: insertError } = await supabase.from('list_items').insert(itemsToInsert);
         if (insertError) throw insertError;
       }
 
       await fetchListsFromDB(false);
+      await saveToLocalCache(listsRef.current);
     } catch (err: any) {
       console.error('Error updating list in Supabase:', err);
-      setErrorMessage(err.message);
+      setErrorMessage(err.message || 'Failed to update list');
+      setLists(previousLists);
+      listsRef.current = previousLists;
+      await saveToLocalCache(previousLists);
       await fetchListsFromDB(false);
+      throw err;
     }
   };
 
-  // Remove a list permanently from database
   const deleteList = async (id: string) => {
     if (!currentUserId) return;
+
+    const previousLists = [...listsRef.current];
     const nextLists = listsRef.current.filter((list) => list.id !== id);
+
     setLists(nextLists);
     listsRef.current = nextLists;
-    await saveToLocalCache(nextLists);
 
-    if (!isSupabaseConfigured || !isValidUUID(id)) {
-      return;
-    }
+    if (!isSupabaseConfigured || !isValidUUID(id)) return;
 
     try {
       const { error } = await supabase
@@ -505,17 +480,25 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .eq('user_id', currentUserId);
 
       if (error) throw error;
+
+      await saveToLocalCache(listsRef.current);
     } catch (err: any) {
       console.error('Error deleting list from Supabase:', err);
-      setErrorMessage(err.message);
+      setErrorMessage(err.message || 'Failed to delete list');
+      setLists(previousLists);
+      listsRef.current = previousLists;
+      await saveToLocalCache(previousLists);
       await fetchListsFromDB(false);
+      throw err;
     }
   };
 
-  // Toggle pin status for a specific list
   const togglePinList = async (id: string) => {
     if (!currentUserId) return;
+
+    const previousLists = [...listsRef.current];
     let targetNewPinned = true;
+
     const nextLists = listsRef.current.map((list) => {
       if (list.id === id) {
         targetNewPinned = !list.isPinned;
@@ -526,11 +509,8 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     setLists(nextLists);
     listsRef.current = nextLists;
-    await saveToLocalCache(nextLists);
 
-    if (!isSupabaseConfigured || !isValidUUID(id)) {
-      return;
-    }
+    if (!isSupabaseConfigured || !isValidUUID(id)) return;
 
     try {
       const { error } = await supabase
@@ -540,16 +520,24 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .eq('user_id', currentUserId);
 
       if (error) throw error;
+
+      await saveToLocalCache(listsRef.current);
     } catch (err: any) {
       console.error('Error toggling pin in Supabase:', err);
+      setLists(previousLists);
+      listsRef.current = previousLists;
+      await saveToLocalCache(previousLists);
       await fetchListsFromDB(false);
+      throw err;
     }
   };
 
-  // Toggle archive status for a specific list
   const toggleArchiveList = async (id: string) => {
     if (!currentUserId) return;
+
+    const previousLists = [...listsRef.current];
     let targetNewArchived = true;
+
     const nextLists = listsRef.current.map((list) => {
       if (list.id === id) {
         targetNewArchived = !list.isArchived;
@@ -560,11 +548,8 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     setLists(nextLists);
     listsRef.current = nextLists;
-    await saveToLocalCache(nextLists);
 
-    if (!isSupabaseConfigured || !isValidUUID(id)) {
-      return;
-    }
+    if (!isSupabaseConfigured || !isValidUUID(id)) return;
 
     try {
       const { error } = await supabase
@@ -574,19 +559,27 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .eq('user_id', currentUserId);
 
       if (error) throw error;
+
+      await saveToLocalCache(listsRef.current);
     } catch (err: any) {
       console.error('Error toggling archive in Supabase:', err);
+      setLists(previousLists);
+      listsRef.current = previousLists;
+      await saveToLocalCache(previousLists);
       await fetchListsFromDB(false);
+      throw err;
     }
   };
 
-  // Toggle checklist item completion status in database
   const toggleItemComplete = async (listId: string, itemId: string) => {
     if (!currentUserId) return;
+
+    const previousLists = [...listsRef.current];
     let targetNewCompleted: boolean | null = null;
 
     const nextLists = listsRef.current.map((list) => {
       if (list.id !== listId) return list;
+
       return {
         ...list,
         items: list.items.map((item) => {
@@ -604,11 +597,8 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     setLists(nextLists);
     listsRef.current = nextLists;
-    await saveToLocalCache(nextLists);
 
-    if (!isSupabaseConfigured || !isValidUUID(itemId)) {
-      return;
-    }
+    if (!isSupabaseConfigured || !isValidUUID(itemId)) return;
 
     try {
       const { error } = await supabase
@@ -617,18 +607,25 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .eq('id', itemId);
 
       if (error) throw error;
+
+      await saveToLocalCache(listsRef.current);
     } catch (err: any) {
       console.error('Error toggling item completion in Supabase:', err);
+      setLists(previousLists);
+      listsRef.current = previousLists;
+      await saveToLocalCache(previousLists);
       await fetchListsFromDB(false);
+      throw err;
     }
   };
 
-  // Append a single item entry to an existing list in database
   const addItemToList = async (listId: string, text: string) => {
     if (!currentUserId) return;
+
     const trimmed = text.trim();
     if (!trimmed) return;
 
+    const previousLists = [...listsRef.current];
     const newItemId = generateUUID();
     let nextPosition = 0;
 
@@ -653,11 +650,8 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     setLists(nextLists);
     listsRef.current = nextLists;
-    await saveToLocalCache(nextLists);
 
-    if (!isSupabaseConfigured || !isValidUUID(listId)) {
-      return;
-    }
+    if (!isSupabaseConfigured || !isValidUUID(listId)) return;
 
     try {
       const { error } = await supabase.from('list_items').insert({
@@ -669,17 +663,23 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       if (error) throw error;
+
       await fetchListsFromDB(false);
+      await saveToLocalCache(listsRef.current);
     } catch (err: any) {
       console.error('Error adding item to Supabase:', err);
+      setLists(previousLists);
+      listsRef.current = previousLists;
+      await saveToLocalCache(previousLists);
       await fetchListsFromDB(false);
+      throw err;
     }
   };
 
-  // Reorder lists and sync position index to database
   const reorderLists = async (newLists: List[]) => {
     if (!currentUserId) return;
 
+    const previousLists = [...listsRef.current];
     const updated = newLists.map((item, index) => ({
       ...item,
       position: index,
@@ -687,11 +687,8 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     setLists(updated);
     listsRef.current = updated;
-    await saveToLocalCache(updated);
 
-    if (!isSupabaseConfigured) {
-      return;
-    }
+    if (!isSupabaseConfigured) return;
 
     try {
       const validUpdates = updated
@@ -703,9 +700,16 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
             .eq('id', list.id)
             .eq('user_id', currentUserId)
         );
+
       await Promise.all(validUpdates);
+      await saveToLocalCache(updated);
     } catch (err: any) {
       console.error('Error syncing reordered lists to Supabase:', err);
+      setLists(previousLists);
+      listsRef.current = previousLists;
+      await saveToLocalCache(previousLists);
+      await fetchListsFromDB(false);
+      throw err;
     }
   };
 

@@ -210,16 +210,23 @@ export default function ListsScreen() {
     [pinnedLists, unpinnedLists]
   );
 
-  // Update order after drag-and-drop.
-  // Pinned and unpinned lists remain in their respective groups.
+  // Update order after drag-and-drop safely against filtered state
   const handleDragEnd = useCallback(
     ({ data }: { data: List[] }) => {
-      const reorderedPinned = data.filter((list) => list.isPinned);
-      const reorderedUnpinned = data.filter((list) => !list.isPinned);
+      const visibleIds = new Set(data.map((list) => list.id));
 
-      reorderLists([...reorderedPinned, ...reorderedUnpinned]);
+      const nextCanonicalOrder = lists
+        .filter((list) => !visibleIds.has(list.id))
+        .concat(data);
+
+      const normalised = nextCanonicalOrder.map((list, index) => ({
+        ...list,
+        position: index,
+      }));
+
+      reorderLists(normalised);
     },
-    [reorderLists]
+    [lists, reorderLists]
   );
 
   // Dynamic theme colors

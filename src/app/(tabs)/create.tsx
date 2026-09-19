@@ -8,6 +8,7 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -24,19 +25,14 @@ export default function CreateScreen() {
   const router = useRouter();
   const { addList, isDarkMode } = useLists();
 
-  // Form state
   const [title, setTitle] = useState('');
   const [tag, setTag] = useState('');
   const [type, setType] = useState<ListType>('checklist');
-  const [items, setItems] = useState<ListItem[]>([
-    createBlankItem(),
-  ]);
+  const [items, setItems] = useState<ListItem[]>([createBlankItem()]);
 
-  // Refs for tracking input focus and scroll position
   const inputsRef = useRef<{ [key: string]: TextInput | null }>({});
   const scrollViewRef = useRef<ScrollView | null>(null);
 
-  // Reset the form every time the Create tab becomes focused
   useFocusEffect(
     useCallback(() => {
       setTitle('');
@@ -47,7 +43,6 @@ export default function CreateScreen() {
     }, [])
   );
 
-  // Theme styles
   const theme = {
     bg: isDarkMode ? '#121212' : '#F2F2F7',
     cardBg: isDarkMode ? '#1E1E1E' : '#FFFFFF',
@@ -55,43 +50,30 @@ export default function CreateScreen() {
     textSecondary: isDarkMode ? '#A0A0A0' : '#8E8E93',
   };
 
-  // Add a new empty item field
   const handleAddItem = () => {
     const newId = Date.now().toString();
-
     setItems((prev) => [
       ...prev,
-      {
-        id: newId,
-        text: '',
-        isCompleted: false,
-      },
+      { id: newId, text: '', isCompleted: false },
     ]);
-
     setTimeout(() => {
       inputsRef.current[newId]?.focus();
       scrollViewRef.current?.scrollToEnd({ animated: true });
     }, 50);
   };
 
-  // Delete an item field
   const handleRemoveItem = (id: string) => {
     if (items.length <= 1) return;
-
     setItems((prev) => prev.filter((item) => item.id !== id));
   };
 
-  // Update text for a specific item
   const handleItemChange = (text: string, id: string) => {
     setItems((prev) =>
-      prev.map((item) =>
-        item.id === id ? { ...item, text } : item
-      )
+      prev.map((item) => (item.id === id ? { ...item, text } : item))
     );
   };
 
-  // Save new list
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!title.trim()) return;
 
     const stringItems = items
@@ -100,23 +82,18 @@ export default function CreateScreen() {
 
     const tagValue = tag.trim() || undefined;
 
-    addList(
-      title.trim(),
-      type,
-      tagValue,
-      stringItems
-    );
-
-    router.push('/(tabs)');
+    try {
+      await addList(title.trim(), type, tagValue, stringItems);
+      router.push('/(tabs)');
+    } catch (err: any) {
+      Alert.alert('Save failed', err?.message || 'Could not create this list.');
+    }
   };
 
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={[
-        styles.container,
-        { backgroundColor: theme.bg },
-      ]}
+      style={[styles.container, { backgroundColor: theme.bg }]}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
     >
       <ScrollView
@@ -124,33 +101,14 @@ export default function CreateScreen() {
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
       >
-        <Text
-          style={[
-            styles.heading,
-            { color: theme.textPrimary },
-          ]}
-        >
-          Create New List
-        </Text>
+        <Text style={[styles.heading, { color: theme.textPrimary }]}>Create New List</Text>
 
-        {/* Title input */}
         <View style={styles.fieldGroup}>
-          <Text
-            style={[
-              styles.label,
-              { color: theme.textSecondary },
-            ]}
-          >
-            TITLE
-          </Text>
-
+          <Text style={[styles.label, { color: theme.textSecondary }]}>TITLE</Text>
           <TextInput
             style={[
               styles.input,
-              {
-                backgroundColor: theme.cardBg,
-                color: theme.textPrimary,
-              },
+              { backgroundColor: theme.cardBg, color: theme.textPrimary },
             ]}
             placeholder="e.g., Grocery Shopping"
             placeholderTextColor={theme.textSecondary}
@@ -160,24 +118,12 @@ export default function CreateScreen() {
           />
         </View>
 
-        {/* Tag input */}
         <View style={styles.fieldGroup}>
-          <Text
-            style={[
-              styles.label,
-              { color: theme.textSecondary },
-            ]}
-          >
-            TAG (OPTIONAL)
-          </Text>
-
+          <Text style={[styles.label, { color: theme.textSecondary }]}>TAG (OPTIONAL)</Text>
           <TextInput
             style={[
               styles.input,
-              {
-                backgroundColor: theme.cardBg,
-                color: theme.textPrimary,
-              },
+              { backgroundColor: theme.cardBg, color: theme.textPrimary },
             ]}
             placeholder="e.g., Work, Personal"
             placeholderTextColor={theme.textSecondary}
@@ -187,72 +133,40 @@ export default function CreateScreen() {
           />
         </View>
 
-        {/* List type selector */}
         <View style={styles.fieldGroup}>
-          <Text
-            style={[
-              styles.label,
-              { color: theme.textSecondary },
-            ]}
-          >
-            TYPE
-          </Text>
-
+          <Text style={[styles.label, { color: theme.textSecondary }]}>TYPE</Text>
           <View style={styles.typeSelector}>
-            {(
-              ['checklist', 'bulleted', 'numbered'] as ListType[]
-            ).map((t) => (
+            {(['checklist', 'numbered', 'bulleted'] as ListType[]).map((option) => (
               <TouchableOpacity
-                key={t}
+                key={option}
                 style={[
-                  styles.typeBtn,
+                  styles.typeButton,
+                  type === option && styles.typeButtonSelected,
                   { backgroundColor: theme.cardBg },
-                  type === t && styles.typeBtnActive,
                 ]}
-                onPress={() => setType(t)}
+                onPress={() => setType(option)}
               >
                 <Text
                   style={[
-                    styles.typeBtnText,
-                    { color: theme.textPrimary },
-                    type === t &&
-                      styles.typeBtnTextActive,
+                    styles.typeButtonText,
+                    { color: type === option ? '#FFFFFF' : theme.textPrimary },
                   ]}
                 >
-                  {t.charAt(0).toUpperCase() + t.slice(1)}
+                  {option}
                 </Text>
               </TouchableOpacity>
             ))}
           </View>
         </View>
 
-        {/* List items */}
         <View style={styles.fieldGroup}>
-          <Text
-            style={[
-              styles.label,
-              { color: theme.textSecondary },
-            ]}
-          >
-            ITEMS
-          </Text>
+          <Text style={[styles.label, { color: theme.textSecondary }]}>ITEMS</Text>
 
           {items.map((item, index) => (
             <View key={item.id} style={styles.itemRow}>
-              <Text
-                style={[
-                  styles.itemPrefix,
-                  { color: theme.textSecondary },
-                ]}
-              >
-                {type === 'numbered'
-                  ? `${index + 1}.`
-                  : '•'}
-              </Text>
-
               <TextInput
-                ref={(el) => {
-                  inputsRef.current[item.id] = el;
+                ref={(ref) => {
+                  inputsRef.current[item.id] = ref;
                 }}
                 style={[
                   styles.itemInput,
@@ -261,63 +175,30 @@ export default function CreateScreen() {
                     color: theme.textPrimary,
                   },
                 ]}
-                placeholder="Item detail..."
+                placeholder={`Item ${index + 1}`}
                 placeholderTextColor={theme.textSecondary}
                 value={item.text}
-                onChangeText={(text) =>
-                  handleItemChange(text, item.id)
-                }
-                returnKeyType="next"
-                onSubmitEditing={handleAddItem}
-                blurOnSubmit={false}
+                onChangeText={(text) => handleItemChange(text, item.id)}
               />
-
-              <TouchableOpacity
-                onPress={() => handleRemoveItem(item.id)}
-                style={styles.removeBtn}
-              >
-                <Ionicons
-                  name="close-circle"
-                  size={22}
-                  color="#FF3B30"
-                />
-              </TouchableOpacity>
+              {items.length > 1 && (
+                <TouchableOpacity
+                  onPress={() => handleRemoveItem(item.id)}
+                  style={styles.removeButton}
+                >
+                  <Ionicons name="trash-outline" size={18} color="#FF3B30" />
+                </TouchableOpacity>
+              )}
             </View>
           ))}
-
-          {/* Add another item */}
-          <TouchableOpacity
-            style={[
-              styles.addItemBtn,
-              { backgroundColor: theme.cardBg },
-            ]}
-            onPress={handleAddItem}
-            activeOpacity={0.7}
-          >
-            <Ionicons
-              name="add"
-              size={20}
-              color="#208AEF"
-            />
-
-            <Text style={styles.addItemText}>
-              Add Another Item
-            </Text>
-          </TouchableOpacity>
         </View>
 
-        {/* Save button */}
-        <TouchableOpacity
-          style={[
-            styles.saveBtn,
-            !title.trim() && styles.saveBtnDisabled,
-          ]}
-          onPress={handleSave}
-          disabled={!title.trim()}
-        >
-          <Text style={styles.saveBtnText}>
-            Save List
-          </Text>
+        <TouchableOpacity style={styles.addButton} onPress={handleAddItem}>
+          <Ionicons name="add-circle-outline" size={20} color="#208AEF" />
+          <Text style={styles.addButtonText}>Add Item</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
+          <Text style={styles.saveButtonText}>Save List</Text>
         </TouchableOpacity>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -325,123 +206,21 @@ export default function CreateScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-
-  content: {
-    padding: 20,
-    paddingBottom: 60,
-  },
-
-  heading: {
-    fontSize: 24,
-    fontWeight: '700',
-    marginBottom: 20,
-  },
-
-  fieldGroup: {
-    marginBottom: 20,
-  },
-
-  label: {
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    marginBottom: 8,
-  },
-
-  input: {
-    height: 48,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    fontSize: 16,
-  },
-
-  typeSelector: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-
-  typeBtn: {
-    flex: 1,
-    height: 40,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  typeBtnActive: {
-    backgroundColor: '#208AEF',
-  },
-
-  typeBtnText: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-
-  typeBtnTextActive: {
-    color: '#FFFFFF',
-  },
-
-  itemRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-    gap: 8,
-  },
-
-  itemPrefix: {
-    fontSize: 16,
-    fontWeight: '600',
-    width: 20,
-    textAlign: 'center',
-  },
-
-  itemInput: {
-    flex: 1,
-    height: 44,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    fontSize: 15,
-  },
-
-  removeBtn: {
-    padding: 4,
-  },
-
-  addItemBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 44,
-    borderRadius: 8,
-    marginTop: 4,
-    gap: 6,
-  },
-
-  addItemText: {
-    color: '#208AEF',
-    fontWeight: '600',
-    fontSize: 15,
-  },
-
-  saveBtn: {
-    backgroundColor: '#208AEF',
-    height: 50,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 10,
-  },
-
-  saveBtnDisabled: {
-    opacity: 0.5,
-  },
-
-  saveBtnText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
+  container: { flex: 1 },
+  content: { padding: 20, paddingBottom: 40 },
+  heading: { fontSize: 28, fontWeight: '700', marginBottom: 20 },
+  fieldGroup: { marginBottom: 16 },
+  label: { fontSize: 12, fontWeight: '700', marginBottom: 8, letterSpacing: 0.5 },
+  input: { borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16 },
+  typeSelector: { flexDirection: 'row', gap: 8 },
+  typeButton: { flex: 1, borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
+  typeButtonSelected: { backgroundColor: '#208AEF' },
+  typeButtonText: { fontWeight: '600', textTransform: 'capitalize' },
+  itemRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  itemInput: { flex: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16 },
+  removeButton: { marginLeft: 10, padding: 8 },
+  addButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 8, paddingVertical: 12 },
+  addButtonText: { color: '#208AEF', fontWeight: '700', marginLeft: 6 },
+  saveButton: { backgroundColor: '#208AEF', borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 20 },
+  saveButtonText: { color: '#FFFFFF', fontWeight: '700', fontSize: 16 },
 });

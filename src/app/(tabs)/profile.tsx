@@ -15,29 +15,56 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { useLists } from '../../context/ListContext';
 import { useAuth } from '../../context/AuthContext';
 
-// Matches the 'avatars' Storage bucket's file_size_limit (204800 bytes) set
-// in supabase/schema.sql (section 6) — keep these two in sync.
-const MAX_AVATAR_SIZE_BYTES = 200 * 1024; // 200 KB limit
+const MAX_AVATAR_SIZE_BYTES = 200 * 1024;
+
+const normalizeHeicAvatar = async (asset: ImagePicker.ImagePickerAsset) => {
+  const mimeType = (asset.mimeType || 'image/jpeg').toLowerCase();
+  const isHeic = ['image/heic', 'image/heif', 'image/heif-sequence'].includes(mimeType);
+
+  if (!isHeic && mimeType !== 'image/jpeg' && mimeType !== 'image/png' && mimeType !== 'image/webp') {
+    return {
+      base64: asset.base64 || '',
+      mimeType: 'image/jpeg',
+    };
+  }
+
+  if (isHeic || mimeType === 'image/webp') {
+    const manipulated = await ImageManipulator.manipulateAsync(
+      asset.uri,
+      [{ resize: { width: 1200 } }],
+      {
+        compress: 0.85,
+        format: ImageManipulator.SaveFormat.JPEG,
+        base64: true,
+      }
+    );
+
+    return {
+      base64: manipulated.base64 || '',
+      mimeType: 'image/jpeg',
+    };
+  }
+
+  return {
+    base64: asset.base64 || '',
+    mimeType: mimeType === 'image/png' ? 'image/png' : 'image/jpeg',
+  };
+};
 
 export default function ProfileScreen() {
   const router = useRouter();
-
-  // Real auth-backed identity + account actions
   const { user, username, email, avatarUrl, signOut, updateAvatar, deleteAccount } = useAuth();
   const [isUpdatingAvatar, setIsUpdatingAvatar] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  // Get lists state and dark mode handlers from context
   const { lists, isDarkMode, toggleDarkMode } = useLists();
-  
-  // Get responsive screen dimensions
   const { width } = useWindowDimensions();
 
-  // Compute stats overview metrics from global lists data
   const archivedCount = lists.filter((l) => l.isArchived).length;
   const totalLists = lists.length;
   const totalItems = lists.reduce((acc, list) => acc + list.items.length, 0);
@@ -46,10 +73,8 @@ export default function ProfileScreen() {
     0
   );
 
-  // Dynamic avatar size based on screen width
   const avatarSize = Math.min(width * 0.2, 80);
 
-  // Theme color styles
   const dynamicStyles = {
     container: { backgroundColor: isDarkMode ? '#121212' : '#F2F2F7' },
     card: { backgroundColor: isDarkMode ? '#1E1E1E' : '#FFFFFF' },
@@ -58,10 +83,9 @@ export default function ProfileScreen() {
     divider: { backgroundColor: isDarkMode ? '#2C2C2E' : '#E5E5EA' },
   };
 
-  // Pick a new profile photo, enforce the 200KB limit, and hand it to
-  // AuthContext to upload to Supabase Storage (see updateAvatar).
   const handlePickAvatar = async () => {
     setAvatarError(null);
+
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
@@ -75,6 +99,7 @@ export default function ProfileScreen() {
 
       const selectedAsset = result.assets[0];
       let estimatedSizeBytes = selectedAsset.fileSize || 0;
+
       if (!estimatedSizeBytes && selectedAsset.base64) {
         estimatedSizeBytes = Math.round(selectedAsset.base64.length * 0.75);
       }
@@ -88,17 +113,21 @@ export default function ProfileScreen() {
         return;
       }
 
-      if (!selectedAsset.base64) {
+      const normalized = await normalizeHeicAvatar(selectedAsset);
+
+      if (!normalized.base64) {
         const errorMsg = 'Could not read the selected image. Please try a different photo.';
         setAvatarError(errorMsg);
         return;
       }
 
       setIsUpdatingAvatar(true);
+
       const { error } = await updateAvatar({
-        base64: selectedAsset.base64,
-        mimeType: selectedAsset.mimeType || 'image/jpeg',
+        base64: normalized.base64,
+        mimeType: normalized.mimeType,
       });
+
       if (error) {
         setAvatarError(error.message || 'Failed to update profile picture.');
       }
@@ -110,7 +139,6 @@ export default function ProfileScreen() {
     }
   };
 
-  // Remove the current profile photo
   const handleRemoveAvatar = async () => {
     setIsUpdatingAvatar(true);
     try {
@@ -122,10 +150,10 @@ export default function ProfileScreen() {
     }
   };
 
-  // Cross-platform sign out confirmation
   const handleSignOut = async () => {
     if (Platform.OS === 'web') {
-      const confirmed = typeof window !== 'undefined' ? window.confirm('Are you sure you want to sign out?') : true;
+      const confirmed =
+        typeof window !== 'undefined' ? window.confirm('Are you sure you want to sign out?') : true;
       if (confirmed) await signOut();
     } else {
       Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
@@ -135,11 +163,6 @@ export default function ProfileScreen() {
     }
   };
 
-  // Cross-platform account deletion confirmation. Delegates to
-  // AuthContext.deleteAccount(), which calls the server-side 'delete-account'
-  // Edge Function (service-role key stays server-side) and also clears this
-  // user's locally cached list data — doing both here inline previously
-  // meant the AsyncStorage cache for the deleted account was never cleared.
   const handleDeleteAccount = async () => {
     const message = 'This will permanently delete your account, lists, and uploaded avatar. This action cannot be undone.';
 
@@ -158,7 +181,8 @@ export default function ProfileScreen() {
     };
 
     if (Platform.OS === 'web') {
-      const confirmed = typeof window !== 'undefined' ? window.confirm(message) : true;
+      const confirmed =
+        typeof window !== 'undefined' ? window.confirm(message) : true;
       if (confirmed) await performDelete();
     } else {
       Alert.alert('Delete Account', message, [
@@ -173,7 +197,6 @@ export default function ProfileScreen() {
       style={[styles.container, dynamicStyles.container]}
       contentContainerStyle={styles.content}
     >
-      {/* Profile avatar and user info */}
       <View style={styles.profileHeader}>
         <TouchableOpacity
           style={[
@@ -201,12 +224,12 @@ export default function ProfileScreen() {
             <Ionicons name="person" size={avatarSize * 0.5} color="#208AEF" />
           )}
         </TouchableOpacity>
+
         <Text style={[styles.userName, dynamicStyles.textPrimary]}>{username}</Text>
         <Text style={[styles.userEmail, dynamicStyles.textSecondary]}>
           {email || 'Authenticated User'}
         </Text>
 
-        {/* Change / remove photo — minimal text links, same typography scale as the rest of the app */}
         <View style={styles.avatarActionsRow}>
           <TouchableOpacity onPress={handlePickAvatar} disabled={isUpdatingAvatar}>
             <Text style={styles.avatarActionText}>Change Photo</Text>
@@ -220,15 +243,11 @@ export default function ProfileScreen() {
             </>
           )}
         </View>
-        {avatarError && (
-          <Text style={styles.avatarErrorText}>{avatarError}</Text>
-        )}
+
+        {avatarError && <Text style={styles.avatarErrorText}>{avatarError}</Text>}
       </View>
 
-      {/* App preferences settings (Dark mode toggle) */}
-      <Text style={[styles.sectionTitle, dynamicStyles.textSecondary]}>
-        Preferences
-      </Text>
+      <Text style={[styles.sectionTitle, dynamicStyles.textSecondary]}>Preferences</Text>
       <View style={[styles.card, dynamicStyles.card]}>
         <View style={styles.settingRow}>
           <View style={styles.settingLabelGroup}>
@@ -237,9 +256,7 @@ export default function ProfileScreen() {
               size={20}
               color={isDarkMode ? '#FFD60A' : '#FF9500'}
             />
-            <Text style={[styles.settingLabel, dynamicStyles.textPrimary]}>
-              Dark Mode
-            </Text>
+            <Text style={[styles.settingLabel, dynamicStyles.textPrimary]}>Dark Mode</Text>
           </View>
           <Switch
             value={isDarkMode}
@@ -250,104 +267,47 @@ export default function ProfileScreen() {
         </View>
       </View>
 
-      {/* Account actions — reuses the same card/settingRow pattern as everything else on this screen */}
-      <Text style={[styles.sectionTitle, dynamicStyles.textSecondary]}>
-        Account
-      </Text>
+      <Text style={[styles.sectionTitle, dynamicStyles.textSecondary]}>Account</Text>
       <View style={[styles.card, dynamicStyles.card]}>
         <TouchableOpacity style={styles.settingRow} onPress={handleSignOut} activeOpacity={0.7}>
           <View style={styles.settingLabelGroup}>
             <Ionicons name="log-out-outline" size={20} color="#FF9500" />
-            <Text style={[styles.settingLabel, { color: '#FF9500' }]}>Sign Out</Text>
+            <Text style={[styles.settingLabel, dynamicStyles.textPrimary]}>Sign Out</Text>
           </View>
-          <Ionicons name="chevron-forward" size={20} color="#FF9500" />
+          <Ionicons name="chevron-forward" size={18} color={dynamicStyles.textSecondary.color} />
         </TouchableOpacity>
+
         <View style={[styles.divider, dynamicStyles.divider]} />
-        <TouchableOpacity 
-          style={styles.settingRow} 
-          onPress={handleDeleteAccount} 
-          disabled={deleting}
-          activeOpacity={0.7}
-        >
+
+        <TouchableOpacity style={styles.settingRow} onPress={handleDeleteAccount} activeOpacity={0.7}>
           <View style={styles.settingLabelGroup}>
             <Ionicons name="trash-outline" size={20} color="#FF3B30" />
             <Text style={[styles.settingLabel, { color: '#FF3B30' }]}>Delete Account</Text>
           </View>
-          {deleting ? (
-            <ActivityIndicator size="small" color="#FF3B30" />
-          ) : (
-            <Ionicons name="chevron-forward" size={20} color="#FF3B30" />
-          )}
+          {deleting ? <ActivityIndicator size="small" color="#FF3B30" /> : null}
         </TouchableOpacity>
       </View>
 
-      {/* Navigation link to view archived lists */}
-      <Text style={[styles.sectionTitle, dynamicStyles.textSecondary]}>
-        Archived Lists
-      </Text>
-      <TouchableOpacity
-        style={[styles.card, dynamicStyles.card, styles.settingRow]}
-        onPress={() => router.push('/archived')}
-      >
-        <View style={styles.settingLabelGroup}>
-          <Ionicons name="archive-outline" size={20} color="#FF9500" />
-          <Text style={[styles.settingLabel, dynamicStyles.textPrimary]}>
-            View Archived Lists ({archivedCount})
-          </Text>
-        </View>
-        <Ionicons
-          name="chevron-forward"
-          size={20}
-          color={dynamicStyles.textSecondary.color}
-        />
-      </TouchableOpacity>
+      <View style={[styles.statsCard, dynamicStyles.card]}>
+        <Text style={[styles.statsTitle, dynamicStyles.textPrimary]}>Overview</Text>
 
-      {/* Summary stats grid */}
-      <Text style={[styles.sectionTitle, dynamicStyles.textSecondary]}>
-        Overview
-      </Text>
-      <View style={styles.statsGrid}>
-        <View style={[styles.statCard, dynamicStyles.card]}>
-          <Text style={styles.statNumber}>{totalLists}</Text>
-          <Text style={[styles.statLabel, dynamicStyles.textSecondary]}>
-            Total Lists
-          </Text>
-        </View>
-        <View style={[styles.statCard, dynamicStyles.card]}>
-          <Text style={styles.statNumber}>{totalItems}</Text>
-          <Text style={[styles.statLabel, dynamicStyles.textSecondary]}>
-            Total Items
-          </Text>
-        </View>
-        <View style={[styles.statCard, dynamicStyles.card]}>
-          <Text style={styles.statNumber}>{completedItems}</Text>
-          <Text style={[styles.statLabel, dynamicStyles.textSecondary]}>
-            Completed
-          </Text>
-        </View>
-      </View>
-
-      {/* App info section */}
-      <Text style={[styles.sectionTitle, dynamicStyles.textSecondary]}>
-        About
-      </Text>
-      <View style={[styles.card, dynamicStyles.card]}>
-        <View style={styles.infoRow}>
-          <Text style={[styles.infoLabel, dynamicStyles.textPrimary]}>
-            App Version
-          </Text>
-          <Text style={[styles.infoValue, dynamicStyles.textSecondary]}>
-            1.0.0
-          </Text>
-        </View>
-        <View style={[styles.divider, dynamicStyles.divider]} />
-        <View style={styles.infoRow}>
-          <Text style={[styles.infoLabel, dynamicStyles.textPrimary]}>
-            Framework
-          </Text>
-          <Text style={[styles.infoValue, dynamicStyles.textSecondary]}>
-            Expo Router
-          </Text>
+        <View style={styles.statsGrid}>
+          <View style={styles.statItem}>
+            <Text style={[styles.statValue, dynamicStyles.textPrimary]}>{totalLists}</Text>
+            <Text style={[styles.statLabel, dynamicStyles.textSecondary]}>Lists</Text>
+          </View>
+          <View style={styles.statItem}>
+            <Text style={[styles.statValue, dynamicStyles.textPrimary]}>{totalItems}</Text>
+            <Text style={[styles.statLabel, dynamicStyles.textSecondary]}>Items</Text>
+          </View>
+          <View style={styles.statItem}>
+            <Text style={[styles.statValue, dynamicStyles.textPrimary]}>{completedItems}</Text>
+            <Text style={[styles.statLabel, dynamicStyles.textSecondary]}>Done</Text>
+          </View>
+          <View style={styles.statItem}>
+            <Text style={[styles.statValue, dynamicStyles.textPrimary]}>{archivedCount}</Text>
+            <Text style={[styles.statLabel, dynamicStyles.textSecondary]}>Archived</Text>
+          </View>
         </View>
       </View>
     </ScrollView>
@@ -356,40 +316,25 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { padding: '5%' },
+  content: { padding: 20, paddingBottom: 40 },
   profileHeader: { alignItems: 'center', marginBottom: 24 },
-  avatar: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  userName: { fontSize: 20, fontWeight: 'bold' },
-  userEmail: { fontSize: 14, marginTop: 2 },
-  avatarActionsRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
-  avatarActionText: { fontSize: 13, fontWeight: '600', color: '#208AEF' },
-  avatarActionDivider: { fontSize: 13 },
-  avatarErrorText: { fontSize: 12, color: '#FF3B30', marginTop: 6, textAlign: 'center' },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 8,
-    marginTop: 16,
-    textTransform: 'uppercase',
-  },
-  card: { borderRadius: 12, padding: 16, marginBottom: 8 },
-  settingRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  settingLabelGroup: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  settingLabel: { fontSize: 16, fontWeight: '500' },
-  statsGrid: { flexDirection: 'row', gap: 12 },
-  statCard: { flex: 1, padding: 12, borderRadius: 12, alignItems: 'center' },
-  statNumber: { fontSize: 22, fontWeight: 'bold', color: '#208AEF' },
-  statLabel: { fontSize: 12, marginTop: 4, textAlign: 'center' },
-  infoRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
-  infoLabel: { fontSize: 15 },
-  infoValue: { fontSize: 15 },
-  divider: { height: 1, marginVertical: 10 },
+  avatar: { borderWidth: 2, borderColor: '#208AEF', marginBottom: 12 },
+  userName: { fontSize: 24, fontWeight: '700', marginBottom: 4 },
+  userEmail: { fontSize: 14, marginBottom: 12 },
+  avatarActionsRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  avatarActionText: { color: '#208AEF', fontWeight: '600' },
+  avatarActionDivider: { marginHorizontal: 8 },
+  avatarErrorText: { color: '#FF3B30', marginTop: 8, textAlign: 'center' },
+  sectionTitle: { fontSize: 12, fontWeight: '700', letterSpacing: 1, marginBottom: 12, marginTop: 8 },
+  card: { borderRadius: 12, paddingHorizontal: 16, paddingVertical: 8, marginBottom: 20 },
+  settingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14 },
+  settingLabelGroup: { flexDirection: 'row', alignItems: 'center' },
+  settingLabel: { marginLeft: 12, fontSize: 16, fontWeight: '500' },
+  divider: { height: 1, width: '100%' },
+  statsCard: { borderRadius: 12, padding: 16, marginTop: 4 },
+  statsTitle: { fontSize: 16, fontWeight: '700', marginBottom: 12 },
+  statsGrid: { flexDirection: 'row', justifyContent: 'space-between' },
+  statItem: { flex: 1, alignItems: 'center' },
+  statValue: { fontSize: 22, fontWeight: '700' },
+  statLabel: { fontSize: 12, marginTop: 4 },
 });
