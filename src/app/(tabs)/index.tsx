@@ -4,6 +4,7 @@ import React, { useState, useCallback, useMemo } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Platform,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -290,9 +291,13 @@ export default function ListsScreen() {
   );
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <GestureHandlerRootView style={{ flex: 1, height: '100%' }}>
       <SafeAreaView
-        style={[styles.container, { backgroundColor: theme.bg }]}
+        style={[
+          styles.container, 
+          { backgroundColor: theme.bg },
+          Platform.OS === 'web' && ({ flex: 1, overflowY: 'auto' } as any)
+        ]}
         edges={['bottom']}
       >
         {/* Search input field */}
