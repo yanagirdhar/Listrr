@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -21,6 +21,11 @@ const createBlankItem = (): ListItem => ({
   isCompleted: false,
 });
 
+const MAX_TITLE_LENGTH = 120;
+const MAX_TAG_LENGTH = 80;
+const MAX_ITEM_LENGTH = 500;
+const MAX_ITEM_COUNT = 100;
+
 export default function CreateScreen() {
   const router = useRouter();
   const { addList, isDarkMode } = useLists();
@@ -32,6 +37,11 @@ export default function CreateScreen() {
 
   const inputsRef = useRef<{ [key: string]: TextInput | null }>({});
   const scrollViewRef = useRef<ScrollView | null>(null);
+  const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -51,12 +61,17 @@ export default function CreateScreen() {
   };
 
   const handleAddItem = () => {
+    if (items.length >= MAX_ITEM_COUNT) {
+      Alert.alert('Item limit reached', `A list can contain up to ${MAX_ITEM_COUNT} items.`);
+      return;
+    }
     const newId = Date.now().toString();
     setItems((prev) => [
       ...prev,
       { id: newId, text: '', isCompleted: false },
     ]);
-    setTimeout(() => {
+    if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
+    focusTimerRef.current = setTimeout(() => {
       inputsRef.current[newId]?.focus();
       scrollViewRef.current?.scrollToEnd({ animated: true });
     }, 50);
@@ -74,16 +89,27 @@ export default function CreateScreen() {
   };
 
   const handleSave = async () => {
-    if (!title.trim()) return;
+    const trimmedTitle = title.trim();
+    const trimmedTag = tag.trim();
+    const stringItems = items.map((item) => item.text.trim()).filter(Boolean);
 
-    const stringItems = items
-      .map((item) => item.text.trim())
-      .filter((text) => text.length > 0);
+    if (!trimmedTitle) {
+      Alert.alert('Missing title', 'Please enter a title for this list.');
+      return;
+    }
+    if (trimmedTitle.length > MAX_TITLE_LENGTH || trimmedTag.length > MAX_TAG_LENGTH) {
+      Alert.alert('Text too long', `Titles are limited to ${MAX_TITLE_LENGTH} characters and tags to ${MAX_TAG_LENGTH}.`);
+      return;
+    }
+    if (stringItems.some((text) => text.length > MAX_ITEM_LENGTH)) {
+      Alert.alert('Item too long', `Each item is limited to ${MAX_ITEM_LENGTH} characters.`);
+      return;
+    }
 
-    const tagValue = tag.trim() || undefined;
+    const tagValue = trimmedTag || undefined;
 
     try {
-      await addList(title.trim(), type, tagValue, stringItems);
+      await addList(trimmedTitle, type, tagValue, stringItems);
       router.push('/(tabs)');
     } catch (err: any) {
       Alert.alert('Save failed', err?.message || 'Could not create this list.');
@@ -114,6 +140,7 @@ export default function CreateScreen() {
             placeholderTextColor={theme.textSecondary}
             value={title}
             onChangeText={setTitle}
+            maxLength={MAX_TITLE_LENGTH}
             returnKeyType="next"
           />
         </View>
@@ -129,6 +156,7 @@ export default function CreateScreen() {
             placeholderTextColor={theme.textSecondary}
             value={tag}
             onChangeText={setTag}
+            maxLength={MAX_TAG_LENGTH}
             returnKeyType="next"
           />
         </View>
@@ -179,6 +207,7 @@ export default function CreateScreen() {
                 placeholderTextColor={theme.textSecondary}
                 value={item.text}
                 onChangeText={(text) => handleItemChange(text, item.id)}
+                maxLength={MAX_ITEM_LENGTH}
               />
               {items.length > 1 && (
                 <TouchableOpacity
@@ -207,7 +236,7 @@ export default function CreateScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { padding: 20, paddingBottom: 40 },
+  content: { padding: 20, paddingBottom: 40, width: '100%', maxWidth: 720, alignSelf: 'center' },
   heading: { fontSize: 28, fontWeight: '700', marginBottom: 20 },
   fieldGroup: { marginBottom: 16 },
   label: { fontSize: 12, fontWeight: '700', marginBottom: 8, letterSpacing: 0.5 },

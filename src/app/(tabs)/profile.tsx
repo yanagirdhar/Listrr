@@ -114,14 +114,17 @@ export default function ProfileScreen() {
       if (result.canceled || !result.assets || result.assets.length === 0) return;
 
       const selectedAsset = result.assets[0];
-      let estimatedSizeBytes = selectedAsset.fileSize || 0;
+      const normalized = await normalizeHeicAvatar(selectedAsset);
 
-      if (!estimatedSizeBytes && selectedAsset.base64) {
-        estimatedSizeBytes = Math.round((selectedAsset.base64.length * 3) / 4);
+      if (!normalized.base64) {
+        const errorMsg = 'Could not read the selected image. Please try a different photo.';
+        setAvatarError(errorMsg);
+        return;
       }
 
-      if (estimatedSizeBytes > MAX_AVATAR_SIZE_BYTES) {
-        const sizeInKb = (estimatedSizeBytes / 1024).toFixed(0);
+      const normalizedSizeBytes = Math.floor((normalized.base64.length * 3) / 4);
+      if (normalizedSizeBytes > MAX_AVATAR_SIZE_BYTES) {
+        const sizeInKb = (normalizedSizeBytes / 1024).toFixed(0);
         const errorMsg = `Image size (${sizeInKb} KB) exceeds the 200 KB limit. Please choose a smaller image.`;
         setAvatarError(errorMsg);
         if (Platform.OS === 'web') {
@@ -129,14 +132,6 @@ export default function ProfileScreen() {
         } else {
           Alert.alert('Image Too Large', errorMsg);
         }
-        return;
-      }
-
-      const normalized = await normalizeHeicAvatar(selectedAsset);
-
-      if (!normalized.base64) {
-        const errorMsg = 'Could not read the selected image. Please try a different photo.';
-        setAvatarError(errorMsg);
         return;
       }
 
@@ -372,7 +367,7 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { padding: 20, paddingBottom: 40 },
+  content: { padding: 20, paddingBottom: 40, width: '100%', maxWidth: 720, alignSelf: 'center' },
   profileHeader: { alignItems: 'center', marginBottom: 24 },
   avatar: { borderWidth: 2, borderColor: '#208AEF', marginBottom: 12 },
   avatarPlaceholderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', width: '100%', height: '100%' },

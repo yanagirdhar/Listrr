@@ -1,10 +1,11 @@
-import { useState, useLayoutEffect } from 'react';
+import { useState, useLayoutEffect, useEffect, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  Alert,
   Pressable,
 } from 'react-native';
 import {
@@ -33,6 +34,11 @@ export default function ListDetailScreen() {
 
   // Feedback toast state for clipboard copy action
   const [copiedToast, setCopiedToast] = useState(false);
+  const copiedToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (copiedToastTimerRef.current) clearTimeout(copiedToastTimerRef.current);
+  }, []);
 
   // Find target list object matching route parameter
   const currentList = lists.find((l) => l.id === id);
@@ -70,7 +76,8 @@ export default function ListDetailScreen() {
 
     setCopiedToast(true);
 
-    setTimeout(() => {
+    if (copiedToastTimerRef.current) clearTimeout(copiedToastTimerRef.current);
+    copiedToastTimerRef.current = setTimeout(() => {
       setCopiedToast(false);
     }, 2000);
   };
@@ -88,19 +95,27 @@ export default function ListDetailScreen() {
   };
 
   // Toggle archive status and return to previous screen
-  const handleArchive = () => {
+  const handleArchive = async () => {
     if (!currentList) return;
 
-    toggleArchiveList(currentList.id);
-    router.back();
+    try {
+      await toggleArchiveList(currentList.id);
+      router.back();
+    } catch (error) {
+      Alert.alert('Archive failed', error instanceof Error ? error.message : 'Could not archive this list.');
+    }
   };
 
   // Delete list and return to previous screen
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!currentList) return;
 
-    deleteList(currentList.id);
-    router.back();
+    try {
+      await deleteList(currentList.id);
+      router.back();
+    } catch (error) {
+      Alert.alert('Delete failed', error instanceof Error ? error.message : 'Could not delete this list.');
+    }
   };
 
   // Set header action buttons dynamically

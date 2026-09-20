@@ -55,34 +55,9 @@ function getBearerToken(req: Request): string | null {
   return authHeader.trim() || null;
 }
 
-/**
- * Deletes this user's application rows. Ordered child-before-parent so the
- * function is correct even if a cascade is ever dropped from the schema.
- */
 async function purgeUserData(admin: SupabaseClient, userId: string) {
-  const { error: itemsError } = await admin
-    .from('list_items')
-    .delete()
-    .eq('user_id', userId);
-  if (itemsError) {
-    throw Object.assign(new Error(itemsError.message), { stage: 'list_items' });
-  }
-
-  const { error: listsError } = await admin
-    .from('lists')
-    .delete()
-    .eq('user_id', userId);
-  if (listsError) {
-    throw Object.assign(new Error(listsError.message), { stage: 'lists' });
-  }
-
-  const { error: profileError } = await admin
-    .from('profiles')
-    .delete()
-    .eq('id', userId);
-  if (profileError) {
-    throw Object.assign(new Error(profileError.message), { stage: 'profiles' });
-  }
+  const { error } = await admin.rpc('purge_user_data', { p_user_id: userId });
+  if (error) throw error;
 }
 
 /**
@@ -95,9 +70,7 @@ async function purgeAvatars(admin: SupabaseClient, userId: string) {
     .list(userId);
 
   if (listError) {
-    // A missing bucket or empty prefix must not block account deletion.
-    console.warn('Avatar listing failed (continuing):', listError.message);
-    return;
+    throw listError;
   }
 
   if (!files || files.length === 0) return;
@@ -107,9 +80,7 @@ async function purgeAvatars(admin: SupabaseClient, userId: string) {
     .from(AVATAR_BUCKET)
     .remove(paths);
 
-  if (removeError) {
-    console.warn('Avatar cleanup failed (continuing):', removeError.message);
-  }
+  if (removeError) throw removeError;
 }
 
 Deno.serve(async (req: Request) => {
@@ -150,14 +121,7 @@ Deno.serve(async (req: Request) => {
         .join(', ');
 
       console.error('delete-account: missing environment configuration:', missing);
-      return json(
-        {
-          error: 'The account deletion service is not configured correctly.',
-          detail: `Missing: ${missing}`,
-          stage,
-        },
-        500
-      );
+      return json({ error: 'The account deletion service is unavailable.' }, 500);
     }
 
     // Privileged client. Never leaves this server-side runtime.
@@ -172,14 +136,7 @@ Deno.serve(async (req: Request) => {
     const { data: userData, error: userError } = await adminClient.auth.getUser(bearerToken);
 
     if (userError || !userData?.user?.id) {
-      return json(
-        {
-          error: 'Your session is no longer valid. Please sign in again.',
-          detail: userError?.message ?? 'Supabase auth rejected this token.',
-          stage,
-        },
-        401
-      );
+      return json({ error: 'Your session is no longer valid. Please sign in again.' }, 401);
     }
 
     const userId = userData.user.id;
@@ -195,32 +152,15 @@ Deno.serve(async (req: Request) => {
     stage = 'auth-user';
     const { error: deleteUserError } = await adminClient.auth.admin.deleteUser(userId);
     if (deleteUserError) {
-      // The app rows are already gone; surface the real reason so this is
-      // debuggable instead of collapsing into a generic non-2xx.
       console.error('delete-account: auth user deletion failed:', deleteUserError.message);
-      return json(
-        {
-          error: 'Your data was removed but the account itself could not be deleted.',
-          detail: deleteUserError.message,
-          stage,
-        },
-        500
-      );
+      return json({ error: 'Your data was removed, but the account could not be deleted.' }, 500);
     }
 
     return json({ success: true, userId }, 200);
   } catch (err) {
-    const detail = err instanceof Error ? err.message : JSON.stringify(err);
     const failedStage = (err as { stage?: string })?.stage ?? stage;
-    console.error(`delete-account error [${failedStage}]:`, detail);
+    console.error(`delete-account error [${failedStage}]:`, err);
 
-    return json(
-      {
-        error: 'Unable to delete the account. Please try again.',
-        detail,
-        stage: failedStage,
-      },
-      500
-    );
+    return json({ error: 'Unable to delete the account. Please try again.' }, 500);
   }
 });

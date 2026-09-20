@@ -15,6 +15,11 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useLists } from '../../context/ListContext';
 import { ListType, ListItem } from '../../types/list';
 
+const MAX_TITLE_LENGTH = 120;
+const MAX_TAG_LENGTH = 80;
+const MAX_ITEM_LENGTH = 500;
+const MAX_ITEM_COUNT = 100;
+
 export default function EditScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -29,6 +34,11 @@ export default function EditScreen() {
 
   const inputsRef = useRef<{ [key: string]: TextInput | null }>({});
   const scrollViewRef = useRef<ScrollView | null>(null);
+  const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (!currentList) return;
@@ -51,9 +61,14 @@ export default function EditScreen() {
   };
 
   const handleAddItem = () => {
+    if (items.length >= MAX_ITEM_COUNT) {
+      Alert.alert('Item limit reached', `A list can contain up to ${MAX_ITEM_COUNT} items.`);
+      return;
+    }
     const newId = Date.now().toString();
     setItems((prev) => [...prev, { id: newId, text: '', isCompleted: false }]);
-    setTimeout(() => {
+    if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
+    focusTimerRef.current = setTimeout(() => {
       inputsRef.current[newId]?.focus();
       scrollViewRef.current?.scrollToEnd({ animated: true });
     }, 50);
@@ -71,16 +86,29 @@ export default function EditScreen() {
   };
 
   const handleSave = async () => {
-    if (!currentList || !title.trim()) return;
+    if (!currentList) return;
 
-    const stringItems = items
-      .map((item) => item.text.trim())
-      .filter((text) => text.length > 0);
+    const trimmedTitle = title.trim();
+    const trimmedTag = tag.trim();
+    const stringItems = items.map((item) => item.text.trim()).filter(Boolean);
 
-    const tagValue = tag.trim() || undefined;
+    if (!trimmedTitle) {
+      Alert.alert('Missing title', 'Please enter a title for this list.');
+      return;
+    }
+    if (trimmedTitle.length > MAX_TITLE_LENGTH || trimmedTag.length > MAX_TAG_LENGTH) {
+      Alert.alert('Text too long', `Titles are limited to ${MAX_TITLE_LENGTH} characters and tags to ${MAX_TAG_LENGTH}.`);
+      return;
+    }
+    if (stringItems.length > MAX_ITEM_COUNT || stringItems.some((text) => text.length > MAX_ITEM_LENGTH)) {
+      Alert.alert('Invalid items', `Lists support up to ${MAX_ITEM_COUNT} items and each item is limited to ${MAX_ITEM_LENGTH} characters.`);
+      return;
+    }
+
+    const tagValue = trimmedTag || undefined;
 
     try {
-      await updateList(currentList.id, title.trim(), type, tagValue, stringItems);
+      await updateList(currentList.id, trimmedTitle, type, tagValue, stringItems);
       router.back();
     } catch (err: any) {
       Alert.alert('Save failed', err?.message || 'Could not update this list.');
@@ -119,6 +147,7 @@ export default function EditScreen() {
             placeholderTextColor={theme.textSecondary}
             value={title}
             onChangeText={setTitle}
+            maxLength={MAX_TITLE_LENGTH}
             returnKeyType="next"
           />
         </View>
@@ -134,6 +163,7 @@ export default function EditScreen() {
             placeholderTextColor={theme.textSecondary}
             value={tag}
             onChangeText={setTag}
+            maxLength={MAX_TAG_LENGTH}
             returnKeyType="next"
           />
         </View>
@@ -181,6 +211,7 @@ export default function EditScreen() {
                 placeholderTextColor={theme.textSecondary}
                 value={item.text}
                 onChangeText={(text) => handleItemChange(text, item.id)}
+                maxLength={MAX_ITEM_LENGTH}
               />
               {items.length > 1 && (
                 <TouchableOpacity
@@ -210,7 +241,7 @@ export default function EditScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  content: { padding: 20, paddingBottom: 40 },
+  content: { padding: 20, paddingBottom: 40, width: '100%', maxWidth: 720, alignSelf: 'center' },
   heading: { fontSize: 28, fontWeight: '700', marginBottom: 20 },
   fieldGroup: { marginBottom: 16 },
   label: { fontSize: 12, fontWeight: '700', marginBottom: 8, letterSpacing: 0.5 },

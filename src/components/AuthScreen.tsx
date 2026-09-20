@@ -281,7 +281,7 @@ export default function AuthScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  scrollContent: { flexGrow: 1, justifyContent: 'center', padding: '6%' },
+  scrollContent: { flexGrow: 1, justifyContent: 'center', padding: '6%', width: '100%', maxWidth: 720, alignSelf: 'center' },
   headerArea: { alignItems: 'center', marginBottom: 24 },
   badge: {
     width: 64,

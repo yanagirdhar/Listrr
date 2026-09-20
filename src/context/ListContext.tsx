@@ -14,6 +14,8 @@ import { useAuth, listCacheKeyForUser } from './AuthContext';
 
 export type SyncStatus = 'connected' | 'offline' | 'unconfigured' | 'syncing' | 'error';
 
+const DARK_MODE_PREFERENCE_KEY = '@listrr_dark_mode_preference_v1';
+
 // Safe cross-platform UUID v4 generator
 export function generateUUID(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -111,6 +113,7 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const { user, isLoading: isAuthLoading } = useAuth();
   const systemColorScheme = useColorScheme();
   const [isDarkMode, setIsDarkMode] = useState<boolean>(systemColorScheme === 'dark');
+  const darkModePreferenceRef = useRef<boolean | null>(null);
 
   // Database and UI states
   const [lists, setLists] = useState<List[]>([]);
@@ -134,7 +137,25 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
     : '@listrr_cached_lists_v2_guest';
 
   useEffect(() => {
-    setIsDarkMode(systemColorScheme === 'dark');
+    let cancelled = false;
+    void AsyncStorage.getItem(DARK_MODE_PREFERENCE_KEY).then((stored) => {
+      if (cancelled) return;
+      if (stored === 'true' || stored === 'false') {
+        const preference = stored === 'true';
+        darkModePreferenceRef.current = preference;
+        setIsDarkMode(preference);
+      }
+    }).catch((error) => console.warn('Failed to load dark mode preference:', error));
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (darkModePreferenceRef.current === null) {
+      setIsDarkMode(systemColorScheme === 'dark');
+    }
   }, [systemColorScheme]);
 
   useEffect(() => {
@@ -314,7 +335,16 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [currentUserId, isAuthLoading, fetchListsFromDB]);
 
-  const toggleDarkMode = () => setIsDarkMode((prev) => !prev);
+  const toggleDarkMode = () => {
+    setIsDarkMode((previous) => {
+      const next = !previous;
+      darkModePreferenceRef.current = next;
+      void AsyncStorage.setItem(DARK_MODE_PREFERENCE_KEY, String(next)).catch((error) => {
+        console.warn('Failed to save dark mode preference:', error);
+      });
+      return next;
+    });
+  };
 
   const refreshLists = async () => {
     await fetchListsFromDB(true);
@@ -364,34 +394,24 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLists(nextLists);
     listsRef.current = nextLists;
 
-    if (!isSupabaseConfigured) return;
+    if (!isSupabaseConfigured) {
+      lastGoodSnapshotRef.current = nextLists;
+      await saveToLocalCache(nextLists);
+      setSyncStatus('unconfigured');
+      return;
+    }
 
     try {
-      const { error: listError } = await supabase.from('lists').insert({
-        id: listId,
-        user_id: currentUserId,
-        title: title.trim(),
-        type,
-        tag: tagValue,
-        is_pinned: false,
-        is_archived: false,
-        position: 0,
+      const { error } = await supabase.rpc('create_list_with_items', {
+        p_list_id: listId,
+        p_user_id: currentUserId,
+        p_title: title.trim(),
+        p_type: type,
+        p_tag: tagValue,
+        p_items: optimisticItems,
       });
 
-      if (listError) throw listError;
-
-      if (optimisticItems.length > 0) {
-        const itemsToInsert = optimisticItems.map((item) => ({
-          id: item.id,
-          list_id: listId,
-          text: item.text,
-          is_completed: false,
-          position: item.position ?? 0,
-        }));
-
-        const { error: itemsError } = await supabase.from('list_items').insert(itemsToInsert);
-        if (itemsError) throw itemsError;
-      }
+      if (error) throw error;
 
       // Server confirmed; now update local cache.
       const confirmedSnapshot = [...listsRef.current];
@@ -449,43 +469,24 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLists(nextLists);
     listsRef.current = nextLists;
 
-    if (!isSupabaseConfigured || !isValidUUID(id)) return;
+    if (!isSupabaseConfigured || !isValidUUID(id)) {
+      lastGoodSnapshotRef.current = nextLists;
+      await saveToLocalCache(nextLists);
+      setSyncStatus('unconfigured');
+      return;
+    }
 
     try {
-      const { error: listError } = await supabase
-        .from('lists')
-        .update({
-          title: title.trim(),
-          type,
-          tag: tagValue,
-        })
-        .eq('id', id)
-        .eq('user_id', currentUserId);
+      const { error } = await supabase.rpc('update_list_with_items', {
+        p_list_id: id,
+        p_user_id: currentUserId,
+        p_title: title.trim(),
+        p_type: type,
+        p_tag: tagValue,
+        p_items: updatedItems,
+      });
 
-      if (listError) throw listError;
-
-      const { error: deleteError } = await supabase
-        .from('list_items')
-        .delete()
-        .eq('list_id', id);
-
-      if (deleteError) throw deleteError;
-
-      if (updatedItems.length > 0) {
-        const itemsToInsert = updatedItems.map((item) => ({
-          id: item.id,
-          list_id: id,
-          text: item.text,
-          is_completed: item.isCompleted,
-          position: item.position ?? 0,
-        }));
-
-        const { error: insertError } = await supabase
-          .from('list_items')
-          .insert(itemsToInsert);
-
-        if (insertError) throw insertError;
-      }
+      if (error) throw error;
 
       const confirmedSnapshot = [...listsRef.current];
       setLists(confirmedSnapshot);
@@ -754,7 +755,9 @@ export const ListProvider: React.FC<{ children: React.ReactNode }> = ({ children
             .eq('user_id', currentUserId)
         );
 
-      await Promise.all(validUpdates);
+      const results = await Promise.all(validUpdates);
+      const failedUpdate = results.find((result) => result.error);
+      if (failedUpdate?.error) throw failedUpdate.error;
 
       const confirmedSnapshot = [...updated];
       setLists(confirmedSnapshot);
