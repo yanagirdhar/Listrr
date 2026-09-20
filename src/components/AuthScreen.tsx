@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
@@ -137,8 +138,11 @@ export default function AuthScreen() {
       >
         {/* Brand header */}
         <View style={styles.headerArea}>
-          <View style={[styles.badge, dynamicStyles.avatarBg]}>
-            <Ionicons name="list" size={36} color="#208AEF" />
+          <View style={[styles.badge, dynamicStyles.avatarBg, { overflow: 'hidden' }]}>
+            <Image
+              source={require('../../assets/images/icon.png')}
+              style={{ width: 64, height: 64, resizeMode: 'cover' }}
+            />
           </View>
           <Text style={[styles.brandTitle, dynamicStyles.textPrimary]}>Listrr</Text>
           <Text style={[styles.brandSubtitle, dynamicStyles.textSecondary]}>
