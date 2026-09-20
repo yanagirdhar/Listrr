@@ -27,7 +27,6 @@ const normalizeHeicAvatar = async (
   const mimeType = (asset.mimeType || 'image/jpeg').toLowerCase();
   const heicLike = ['image/heic', 'image/heif', 'image/heif-sequence'].includes(mimeType);
 
-  // If the asset is not a known image type, normalize to jpeg for storage compatibility.
   if (!heicLike && !['image/jpeg', 'image/png', 'image/webp'].includes(mimeType)) {
     return {
       base64: asset.base64 || '',
@@ -35,7 +34,6 @@ const normalizeHeicAvatar = async (
     };
   }
 
-  // Apple camera output often comes in HEIC/HEIF, which storage rejects.
   if (heicLike || mimeType === 'image/webp') {
     try {
       const manipulated = await ImageManipulator.manipulateAsync(
@@ -59,7 +57,6 @@ const normalizeHeicAvatar = async (
     }
   }
 
-  // Use the original base64 if it is already in a compatible format.
   if (asset.base64) {
     return {
       base64: asset.base64,
@@ -216,8 +213,7 @@ export default function ProfileScreen() {
     };
 
     if (Platform.OS === 'web') {
-      const confirmed =
-        typeof window !== 'undefined' ? window.confirm(message) : true;
+      const confirmed = typeof window !== 'undefined' ? window.confirm(message) : true;
 
       if (confirmed) {
         await performDelete();
@@ -252,14 +248,18 @@ export default function ProfileScreen() {
           activeOpacity={0.8}
         >
           {isUpdatingAvatar ? (
-            <ActivityIndicator size="small" color="#208AEF" />
+            <View style={styles.avatarPlaceholderContainer}>
+              <ActivityIndicator size="small" color="#208AEF" />
+            </View>
           ) : avatarUrl ? (
             <Image
               source={{ uri: avatarUrl }}
               style={{ width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 }}
             />
           ) : (
-            <Ionicons name="person" size={avatarSize * 0.5} color="#208AEF" />
+            <View style={styles.avatarPlaceholderContainer}>
+              <Ionicons name="person" size={avatarSize * 0.45} color="#208AEF" />
+            </View>
           )}
         </TouchableOpacity>
 
@@ -304,6 +304,23 @@ export default function ProfileScreen() {
             thumbColor={isDarkMode ? '#FFFFFF' : '#F4F3F4'}
           />
         </View>
+
+        <View style={[styles.divider, dynamicStyles.divider]} />
+
+        <TouchableOpacity
+          style={styles.settingRow}
+          onPress={() => router.push('/archived' as any)}
+          activeOpacity={0.7}
+        >
+          <View style={styles.settingLabelGroup}>
+            <Ionicons name="archive-outline" size={20} color="#208AEF" />
+            <Text style={[styles.settingLabel, dynamicStyles.textPrimary]}>Archived Lists</Text>
+          </View>
+          <View style={styles.settingRightGroup}>
+            <Text style={[styles.badgeText, dynamicStyles.textSecondary]}>{archivedCount}</Text>
+            <Ionicons name="chevron-forward" size={18} color={dynamicStyles.textSecondary.color} />
+          </View>
+        </TouchableOpacity>
       </View>
 
       <Text style={[styles.sectionTitle, dynamicStyles.textSecondary]}>Account</Text>
@@ -358,6 +375,7 @@ const styles = StyleSheet.create({
   content: { padding: 20, paddingBottom: 40 },
   profileHeader: { alignItems: 'center', marginBottom: 24 },
   avatar: { borderWidth: 2, borderColor: '#208AEF', marginBottom: 12 },
+  avatarPlaceholderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', width: '100%', height: '100%' },
   userName: { fontSize: 24, fontWeight: '700', marginBottom: 4 },
   userEmail: { fontSize: 14, marginBottom: 12 },
   avatarActionsRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
@@ -368,7 +386,9 @@ const styles = StyleSheet.create({
   card: { borderRadius: 12, paddingHorizontal: 16, paddingVertical: 8, marginBottom: 20 },
   settingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14 },
   settingLabelGroup: { flexDirection: 'row', alignItems: 'center' },
+  settingRightGroup: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   settingLabel: { marginLeft: 12, fontSize: 16, fontWeight: '500' },
+  badgeText: { fontSize: 14, fontWeight: '600' },
   divider: { height: 1, width: '100%' },
   statsCard: { borderRadius: 12, padding: 16, marginTop: 4 },
   statsTitle: { fontSize: 16, fontWeight: '700', marginBottom: 12 },

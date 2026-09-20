@@ -146,8 +146,8 @@ export default function EditScreen() {
                 key={option}
                 style={[
                   styles.typeButton,
-                  type === option && styles.typeButtonSelected,
                   { backgroundColor: theme.cardBg },
+                  type === option && styles.typeButtonSelected,
                 ]}
                 onPress={() => setType(option)}
               >
